@@ -629,7 +629,7 @@ events_ctx AS (
  ) e
 ),
 
--- 10) Daily Signal CTE: Identifies ED/IP events on each day.
+-- 10) Daily Signal CTE: Identifies ED/IP events on each day from ALL sources.
 daily_signal AS (
  SELECT
  member_id,
@@ -646,6 +646,19 @@ daily_signal AS (
  GROUP BY member_id, event_date
 ),
 
+-- NEW: Claim-Only Daily Signal CTE for Label Generation
+-- This ensures that look-ahead labels are based only on claims data, which is the source of truth.
+claim_daily_signal AS (
+    SELECT
+        member_id,
+        event_date,
+        MAX(IFF(is_ed_event, 1, 0)) AS any_ed_on_date,
+        MAX(IFF(is_ip_event, 1, 0)) AS any_ip_on_date
+    FROM events_ctx
+    WHERE event_type LIKE 'CLAIM_%'
+    GROUP BY member_id, event_date
+),
+
 -- 11) Labels CTE: Creates 30/60/90 day look-ahead labels for ED/IP events.
 labels AS (
  SELECT
@@ -657,7 +670,7 @@ labels AS (
  MAX(ds.any_ip_on_date) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 30 FOLLOWING) AS y_ip_30d,
  MAX(ds.any_ip_on_date) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_ip_60d,
  MAX(ds.any_ip_on_date) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 90 FOLLOWING) AS y_ip_90d
- FROM daily_signal ds
+ FROM claim_daily_signal ds -- UPDATED: Use claim-only signal for labels
 )
 
 -- 13) Final SELECT: Joins all CTEs into the final flattened events table.
@@ -669,6 +682,8 @@ SELECT
  COALESCE(g.engagement_group, 'not_selected_for_engagement') AS engagement_group,
  m.normalized_coverage_category,
  m.months_since_batched,
+ m.has_ever_been_engaged,
+ m.is_batched,
  e.event_date,
  e.event_type,
  e.claim_id,

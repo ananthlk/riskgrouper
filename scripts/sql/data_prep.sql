@@ -22,66 +22,9 @@ Assumptions:
 -- Define the final table for our modeling dataset.
 CREATE OR REPLACE TABLE TRANSFORMED_DATA._TEMP.MODELING_DATASET AS
 WITH daily_agg AS (
-    -- Step 1: Aggregate the EVENTS_DAILY_AGG table to ensure one row per member per day.
-    -- This CTE is a crucial step to prevent duplicates from joins on event-level data.
-    SELECT
-        MEMBER_ID,
-        EVENT_DATE,
-        DOB,
-        -- Corrected: Standardize categorical text by replacing special characters and converting to uppercase.
-        UPPER(TRIM(REPLACE(GENDER, ' ', ' '))) AS GENDER,
-        UPPER(TRIM(REPLACE(ENGAGEMENT_GROUP, ' ', ' '))) AS ENGAGEMENT_GROUP,
-        UPPER(TRIM(REPLACE(NORMALIZED_COVERAGE_CATEGORY, ' ', ' '))) AS NORMALIZED_COVERAGE_CATEGORY,
-        -- All other columns are aggregated to get a single value per member-day.
-        MAX(MONTHS_SINCE_BATCHED) AS MONTHS_SINCE_BATCHED,
-        SUM(CNT_CLAIM_DX) AS CNT_CLAIM_DX,
-        SUM(CNT_CLAIM_PROC) AS CNT_CLAIM_PROC,
-        SUM(CNT_CLAIM_REV) AS CNT_CLAIM_REV,
-        SUM(CNT_CLAIM_EVENTS) AS CNT_CLAIM_EVENTS,
-        MAX(ANY_ED_ON_DATE) AS ANY_ED_ON_DATE,
-        MAX(ANY_IP_ON_DATE) AS ANY_IP_ON_DATE,
-        SUM(PAID_SUM) AS PAID_SUM,
-        SUM(CNT_HCC_DIABETES) AS CNT_HCC_DIABETES,
-        SUM(CNT_HCC_MENTAL_HEALTH) AS CNT_HCC_MENTAL_HEALTH,
-        SUM(CNT_HCC_CARDIOVASCULAR) AS CNT_HCC_CARDIOVASCULAR,
-        SUM(CNT_HCC_PULMONARY) AS CNT_HCC_PULMONARY,
-        SUM(CNT_HCC_KIDNEY) AS CNT_HCC_KIDNEY,
-        SUM(CNT_HCC_SUD) AS CNT_HCC_SUD,
-        SUM(CNT_ANY_HCC) AS CNT_ANY_HCC,
-        SUM(CNT_PROC_PSYCHOTHERAPY) AS CNT_PROC_PSYCHOTHERAPY,
-        SUM(CNT_PROC_PSYCHIATRIC_EVALS) AS CNT_PROC_PSYCHIATRIC_EVALS,
-        -- Averages are used for scores as there may be multiple per day.
-        AVG(NOTE_HEALTH_SCORE) AS NOTE_HEALTH_SCORE,
-        AVG(NOTE_RISK_HARM_SCORE) AS NOTE_RISK_HARM_SCORE,
-        AVG(NOTE_SOCIAL_STAB_SCORE) AS NOTE_SOCIAL_STAB_SCORE,
-        AVG(NOTE_MED_ADHERENCE_SCORE) AS NOTE_MED_ADHERENCE_SCORE,
-        AVG(NOTE_CARE_ENGAGEMENT_SCORE) AS NOTE_CARE_ENGAGEMENT_SCORE,
-        AVG(NOTE_PROGRAM_TRUST_SCORE) AS NOTE_PROGRAM_TRUST_SCORE,
-        AVG(NOTE_SELF_SCORE) AS NOTE_SELF_SCORE,
-        MAX(HEALTH_POP_BASELINE) AS HEALTH_POP_BASELINE,
-        MAX(HEALTH_INDIV_BASELINE) AS HEALTH_INDIV_BASELINE,
-        SUM(RX_DAYS_ANY) AS RX_DAYS_ANY,
-        SUM(RX_DAYS_ANTIPSYCH) AS RX_DAYS_ANTIPSYCH,
-        SUM(RX_DAYS_INSULIN) AS RX_DAYS_INSULIN,
-        SUM(RX_DAYS_ORAL_ANTIDIAB) AS RX_DAYS_ORAL_ANTIDIAB,
-        SUM(RX_DAYS_STATIN) AS RX_DAYS_STATIN,
-        SUM(RX_DAYS_BETA_BLOCKER) AS RX_DAYS_BETA_BLOCKER,
-        SUM(RX_DAYS_OPIOID) AS RX_DAYS_OPIOID,
-        MAX(INCONSISTENCY_MED_NONCOMPLIANCE) AS INCONSISTENCY_MED_NONCOMPLIANCE,
-        MAX(INCONSISTENCY_APPT_NONCOMPLIANCE) AS INCONSISTENCY_APPT_NONCOMPLIANCE,
-        MAX(Y_ANY_30D) AS Y_ANY_30D,
-        MAX(Y_ANY_60D) AS Y_ANY_60D,
-        MAX(Y_ANY_90D) AS Y_ANY_90D,
-        MAX(Y_ED_30D) AS Y_ED_30D,
-        MAX(Y_ED_60D) AS Y_ED_60D,
-        MAX(Y_ED_90D) AS Y_ED_90D,
-        MAX(Y_IP_30D) AS Y_IP_30D,
-        MAX(Y_IP_60D) AS Y_IP_60D,
-        MAX(Y_IP_90D) AS Y_IP_90D
-    FROM TRANSFORMED_DATA._TEMP.EVENTS_DAILY_AGG
-    GROUP BY
-        MEMBER_ID, EVENT_DATE, DOB, GENDER, ENGAGEMENT_GROUP,
-        NORMALIZED_COVERAGE_CATEGORY
+    -- Step 1: Select all data from the pre-aggregated EVENTS_DAILY_AGG table.
+    -- No further aggregation is needed as the upstream table is already at the member-day level.
+    SELECT * FROM TRANSFORMED_DATA._TEMP.EVENTS_DAILY_AGG
 ),
 longitudinal_features AS (
     -- Step 2: Create advanced longitudinal features for the model.
@@ -99,20 +42,23 @@ longitudinal_features AS (
         DATEDIFF(day, LAG(CASE WHEN daily_agg.NOTE_HEALTH_SCORE IS NOT NULL THEN daily_agg.EVENT_DATE ELSE NULL END) IGNORE NULLS OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE), daily_agg.EVENT_DATE) AS DAYS_SINCE_LAST_HEALTH_NOTE,
         DATEDIFF(day, LAG(CASE WHEN daily_agg.NOTE_RISK_HARM_SCORE IS NOT NULL THEN daily_agg.EVENT_DATE ELSE NULL END) IGNORE NULLS OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE), daily_agg.EVENT_DATE) AS DAYS_SINCE_LAST_RISK_NOTE,
         -- Recency flags for claims in the last 30 days.
-        SUM(daily_agg.CNT_CLAIM_EVENTS) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS CLAIMS_IN_LAST_30D_COUNT,
+        SUM(daily_agg.cnt_ed_visits_90d + daily_agg.cnt_ip_visits_90d) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS CLAIMS_IN_LAST_30D_COUNT,
         -- Recency flags for ED/IP events in the last 30 days.
-        SUM(daily_agg.ANY_ED_ON_DATE) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS ED_IN_LAST_30D_COUNT,
-        SUM(daily_agg.ANY_IP_ON_DATE) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS IP_IN_LAST_30D_COUNT,
-        -- First-time diagnosis flags for all HCC categories.
-        LAG(daily_agg.CNT_HCC_DIABETES, 1, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 AND daily_agg.CNT_HCC_DIABETES > 0 AS IS_FIRST_DIABETES,
-        LAG(daily_agg.CNT_HCC_MENTAL_HEALTH, 1, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 AND daily_agg.CNT_HCC_MENTAL_HEALTH > 0 AS IS_FIRST_MENTAL_HEALTH,
-        LAG(daily_agg.CNT_HCC_CARDIOVASCULAR, 1, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 AND daily_agg.CNT_HCC_CARDIOVASCULAR > 0 AS IS_FIRST_CARDIOVASCULAR,
-        LAG(daily_agg.CNT_HCC_PULMONARY, 1, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 AND daily_agg.CNT_HCC_PULMONARY > 0 AS IS_FIRST_PULMONARY,
-        LAG(daily_agg.CNT_HCC_KIDNEY, 1, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 AND daily_agg.CNT_HCC_KIDNEY > 0 AS IS_FIRST_KIDNEY,
-        LAG(daily_agg.CNT_HCC_SUD, 1, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 AND daily_agg.CNT_HCC_SUD > 0 AS IS_FIRST_SUD,
+        SUM(daily_agg.cnt_ed_visits_90d) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS ED_IN_LAST_30D_COUNT,
+        SUM(daily_agg.cnt_ip_visits_90d) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS IP_IN_LAST_30D_COUNT,
+        -- Recency flags for claims in the last 180 days.
+        SUM(daily_agg.cnt_ed_visits_180d + daily_agg.cnt_ip_visits_180d) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 180 PRECEDING AND 1 PRECEDING) AS CLAIMS_IN_LAST_180D_COUNT,
+        -- Recency flags for ED/IP events in the last 180 days.
+        SUM(daily_agg.cnt_ed_visits_180d) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 180 PRECEDING AND 1 PRECEDING) AS ED_IN_LAST_180D_COUNT,
+        SUM(daily_agg.cnt_ip_visits_180d) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE ROWS BETWEEN 180 PRECEDING AND 1 PRECEDING) AS IP_IN_LAST_180D_COUNT,
+        
         -- Detects if a new prescription class has appeared in the last 30 days.
-        CASE WHEN daily_agg.RX_DAYS_ANTIPSYCH > 0 AND LAG(daily_agg.RX_DAYS_ANTIPSYCH, 30, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 THEN 1 ELSE 0 END AS NEW_RX_ANTIPSYCH_30D,
-        CASE WHEN daily_agg.RX_DAYS_INSULIN > 0 AND LAG(daily_agg.RX_DAYS_INSULIN, 30, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 THEN 1 ELSE 0 END AS NEW_RX_INSULIN_30D
+        CASE WHEN daily_agg.mpr_antipsychotic_90d > 0 AND LAG(daily_agg.mpr_antipsychotic_90d, 30, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 THEN 1 ELSE 0 END AS NEW_RX_ANTIPSYCH_30D,
+        CASE WHEN daily_agg.mpr_insulin_90d > 0 AND LAG(daily_agg.mpr_insulin_90d, 30, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 THEN 1 ELSE 0 END AS NEW_RX_INSULIN_30D,
+        CASE WHEN daily_agg.mpr_oral_antidiab_90d > 0 AND LAG(daily_agg.mpr_oral_antidiab_90d, 30, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 THEN 1 ELSE 0 END AS NEW_RX_ORAL_ANTIDIAB_30D,
+        CASE WHEN daily_agg.mpr_statin_90d > 0 AND LAG(daily_agg.mpr_statin_90d, 30, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 THEN 1 ELSE 0 END AS NEW_RX_STATIN_30D,
+        CASE WHEN daily_agg.mpr_beta_blocker_90d > 0 AND LAG(daily_agg.mpr_beta_blocker_90d, 30, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 THEN 1 ELSE 0 END AS NEW_RX_BETA_BLOCKER_30D,
+        CASE WHEN daily_agg.mpr_opioid_90d > 0 AND LAG(daily_agg.mpr_opioid_90d, 30, 0) OVER (PARTITION BY MEMBER_ID ORDER BY EVENT_DATE) = 0 THEN 1 ELSE 0 END AS NEW_RX_OPIOID_30D
     FROM daily_agg
 ),
 first_note AS (
@@ -121,21 +67,19 @@ first_note AS (
         t1.member_id,
         MIN(t1.event_date) AS first_note_date
     FROM TRANSFORMED_DATA._TEMP.EVENTS_DAILY_AGG AS t1
-    JOIN TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX AS t2
-        ON t1.member_id = t2.member_id AND t1.event_date = t2.event_date
-    WHERE t2.event_type = 'CARE_NOTE'
+    WHERE t1.note_health_score IS NOT NULL -- A proxy for any note
     GROUP BY t1.member_id
 ),
 first_hcc_dates AS (
     -- Step 4: Find the first diagnosis date for each specific HCC category.
     SELECT
         MEMBER_ID,
-        MIN(CASE WHEN CNT_HCC_DIABETES > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_DIABETES_DATE,
-        MIN(CASE WHEN CNT_HCC_MENTAL_HEALTH > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_MENTAL_HEALTH_DATE,
-        MIN(CASE WHEN CNT_HCC_CARDIOVASCULAR > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_CARDIOVASCULAR_DATE,
-        MIN(CASE WHEN CNT_HCC_PULMONARY > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_PULMONARY_DATE,
-        MIN(CASE WHEN CNT_HCC_KIDNEY > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_KIDNEY_DATE,
-        MIN(CASE WHEN CNT_HCC_SUD > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_SUD_DATE
+        MIN(CASE WHEN cnt_hcc_diabetes_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_DIABETES_DATE,
+        MIN(CASE WHEN cnt_hcc_mental_health_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_MENTAL_HEALTH_DATE,
+        MIN(CASE WHEN cnt_hcc_cardiovascular_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_CARDIOVASCULAR_DATE,
+        MIN(CASE WHEN cnt_hcc_pulmonary_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_PULMONARY_DATE,
+        MIN(CASE WHEN cnt_hcc_kidney_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_KIDNEY_DATE,
+        MIN(CASE WHEN cnt_hcc_sud_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_SUD_DATE
     FROM daily_agg
     GROUP BY MEMBER_ID
 ),
@@ -143,12 +87,12 @@ first_rx_dates AS (
     -- Step 5: Find the first fill date for each specific medication cohort.
     SELECT
         MEMBER_ID,
-        MIN(CASE WHEN RX_DAYS_ANTIPSYCH > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_ANTIPSYCH_DATE,
-        MIN(CASE WHEN RX_DAYS_INSULIN > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_INSULIN_DATE,
-        MIN(CASE WHEN RX_DAYS_ORAL_ANTIDIAB > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_ORAL_ANTIDIAB_DATE,
-        MIN(CASE WHEN RX_DAYS_STATIN > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_STATIN_DATE,
-        MIN(CASE WHEN RX_DAYS_BETA_BLOCKER > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_BETA_BLOCKER_DATE,
-        MIN(CASE WHEN RX_DAYS_OPIOID > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_OPIOID_DATE
+        MIN(CASE WHEN mpr_antipsychotic_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_ANTIPSYCH_DATE,
+        MIN(CASE WHEN mpr_insulin_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_INSULIN_DATE,
+        MIN(CASE WHEN mpr_oral_antidiab_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_ORAL_ANTIDIAB_DATE,
+        MIN(CASE WHEN mpr_statin_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_STATIN_DATE,
+        MIN(CASE WHEN mpr_beta_blocker_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_BETA_BLOCKER_DATE,
+        MIN(CASE WHEN mpr_opioid_90d > 0 THEN EVENT_DATE ELSE NULL END) AS FIRST_OPIOID_DATE
     FROM daily_agg
     GROUP BY MEMBER_ID
 ),
@@ -179,14 +123,15 @@ prepped_features AS (
         lf.CLAIMS_IN_LAST_30D_COUNT,
         lf.ED_IN_LAST_30D_COUNT,
         lf.IP_IN_LAST_30D_COUNT,
-        lf.IS_FIRST_DIABETES,
-        lf.IS_FIRST_MENTAL_HEALTH,
-        lf.IS_FIRST_CARDIOVASCULAR,
-        lf.IS_FIRST_PULMONARY,
-        lf.IS_FIRST_KIDNEY,
-        lf.IS_FIRST_SUD,
+        lf.CLAIMS_IN_LAST_180D_COUNT,
+        lf.ED_IN_LAST_180D_COUNT,
+        lf.IP_IN_LAST_180D_COUNT,
         lf.NEW_RX_ANTIPSYCH_30D,
         lf.NEW_RX_INSULIN_30D,
+        lf.NEW_RX_ORAL_ANTIDIAB_30D,
+        lf.NEW_RX_STATIN_30D,
+        lf.NEW_RX_BETA_BLOCKER_30D,
+        lf.NEW_RX_OPIOID_30D,
         fn.first_note_date,
         -- Calculate months since first diagnosis for each HCC.
         DATEDIFF(month, hcc.FIRST_DIABETES_DATE, base.EVENT_DATE) AS MONTHS_SINCE_FIRST_DIABETES,
@@ -206,7 +151,7 @@ prepped_features AS (
         DAYOFWEEK(base.EVENT_DATE) AS day_of_week,
         MONTH(base.EVENT_DATE) AS month,
         YEAR(base.EVENT_DATE) AS year,
-        DATEDIFF(day, base.DOB, base.EVENT_DATE) / 365.25 AS age
+        CASE WHEN base.DOB > base.EVENT_DATE THEN NULL ELSE DATEDIFF(day, base.DOB, base.EVENT_DATE) / 365.25 END AS age
     FROM daily_agg AS base
     LEFT JOIN longitudinal_features AS lf
         ON base.MEMBER_ID = lf.MEMBER_ID AND base.EVENT_DATE = lf.EVENT_DATE
@@ -229,11 +174,12 @@ SELECT
     p.age,
     
     -- One-hot encoded features for categorical data.
-    CASE WHEN p.GENDER = 'MALE' THEN 1 ELSE 0 END AS IS_MALE,
-    CASE WHEN p.GENDER = 'FEMALE' THEN 1 ELSE 0 END AS IS_FEMALE,
-    CASE WHEN p.ENGAGEMENT_GROUP = 'ENGAGED_IN_PROGRAM' THEN 1 ELSE 0 END AS IS_ENGAGED,
-    CASE WHEN p.ENGAGEMENT_GROUP = 'SELECTED_NOT_ENGAGED' THEN 1 ELSE 0 END AS IS_SELECTED_NOT_ENGAGED,
-    CASE WHEN p.ENGAGEMENT_GROUP = 'NOT_SELECTED_FOR_ENGAGEMENT' THEN 1 ELSE 0 END AS IS_NOT_SELECTED_FOR_ENGAGEMENT,
+    CASE WHEN UPPER(p.GENDER) = 'M' THEN 1 ELSE 0 END AS IS_MALE,
+    CASE WHEN UPPER(p.GENDER) = 'F' THEN 1 ELSE 0 END AS IS_FEMALE,
+    CASE WHEN UPPER(p.GENDER) NOT IN ('M', 'F') OR p.GENDER IS NULL THEN 1 ELSE 0 END AS IS_GENDER_UNKNOWN,
+    CASE WHEN p.ENGAGEMENT_GROUP = 'engaged_in_program' THEN 1 ELSE 0 END AS IS_ENGAGED,
+    CASE WHEN p.ENGAGEMENT_GROUP = 'selected_not_engaged' THEN 1 ELSE 0 END AS IS_SELECTED_NOT_ENGAGED,
+    CASE WHEN p.ENGAGEMENT_GROUP = 'not_selected_for_engagement' THEN 1 ELSE 0 END AS IS_NOT_SELECTED_FOR_ENGAGEMENT,
     
     CASE WHEN p.NORMALIZED_COVERAGE_CATEGORY = 'TANF' THEN 1 ELSE 0 END AS IS_CATEGORY_TANF,
     CASE WHEN p.NORMALIZED_COVERAGE_CATEGORY = 'EXPANSION' THEN 1 ELSE 0 END AS IS_CATEGORY_EXPANSION,
@@ -242,40 +188,67 @@ SELECT
     
     -- All other aggregated and imputed features.
     p.MONTHS_SINCE_BATCHED,
-    p.CNT_CLAIM_DX,
-    p.CNT_CLAIM_PROC,
-    p.CNT_CLAIM_REV,
-    p.CNT_CLAIM_EVENTS,
-    p.ANY_ED_ON_DATE,
-    p.ANY_IP_ON_DATE,
-    p.PAID_SUM,
-    p.CNT_HCC_DIABETES,
-    p.CNT_HCC_MENTAL_HEALTH,
-    p.CNT_HCC_CARDIOVASCULAR,
-    p.CNT_HCC_PULMONARY,
-    p.CNT_HCC_KIDNEY,
-    p.CNT_HCC_SUD,
-    p.CNT_ANY_HCC,
-    p.CNT_PROC_PSYCHOTHERAPY,
-    p.CNT_PROC_PSYCHIATRIC_EVALS,
-    p.NOTE_HEALTH_SCORE,
-    p.NOTE_RISK_HARM_SCORE,
-    p.NOTE_SOCIAL_STAB_SCORE,
-    p.NOTE_MED_ADHERENCE_SCORE,
-    p.NOTE_CARE_ENGAGEMENT_SCORE,
-    p.NOTE_PROGRAM_TRUST_SCORE,
-    p.NOTE_SELF_SCORE,
-    p.HEALTH_POP_BASELINE,
-    p.HEALTH_INDIV_BASELINE,
-    p.RX_DAYS_ANY,
-    p.RX_DAYS_ANTIPSYCH,
-    p.RX_DAYS_INSULIN,
-    p.RX_DAYS_ORAL_ANTIDIAB,
-    p.RX_DAYS_STATIN,
-    p.RX_DAYS_BETA_BLOCKER,
-    p.RX_DAYS_OPIOID,
-    p.INCONSISTENCY_MED_NONCOMPLIANCE,
-    p.INCONSISTENCY_APPT_NONCOMPLIANCE,
+    p.paid_sum_90d,
+    p.cnt_ed_visits_90d,
+    p.cnt_ip_visits_90d,
+    p.cnt_ed_visits_90_180d,
+    p.cnt_ip_visits_90_180d,
+    p.cnt_hcc_diabetes_90d,
+    p.cnt_hcc_mental_health_90d,
+    p.cnt_hcc_cardiovascular_90d,
+    p.cnt_hcc_pulmonary_90d,
+    p.cnt_hcc_kidney_90d,
+    p.cnt_hcc_sud_90d,
+    p.cnt_any_hcc_90d,
+    p.cnt_proc_psychotherapy_90d,
+    p.cnt_proc_psychiatric_evals_90d,
+    p.paid_sum_180d,
+    p.cnt_ed_visits_180d,
+    p.cnt_ip_visits_180d,
+    p.cnt_hcc_diabetes_180d,
+    p.cnt_hcc_mental_health_180d,
+    p.cnt_hcc_cardiovascular_180d,
+    p.cnt_hcc_pulmonary_180d,
+    p.cnt_hcc_kidney_180d,
+    p.cnt_hcc_sud_180d,
+    p.cnt_any_hcc_180d,
+    p.cnt_proc_psychotherapy_180d,
+    p.cnt_proc_psychiatric_evals_180d,
+    p.note_health_score,
+    p.note_risk_harm_score,
+    p.note_social_stab_score,
+    p.note_med_adherence_score,
+    p.note_care_engagement_score,
+    p.note_program_trust_score,
+    p.note_self_score,
+    p.health_pop_baseline,
+    p.health_indiv_baseline,
+    p.cnt_fills_antipsychotic_90d,
+    p.cnt_fills_insulin_90d,
+    p.cnt_fills_oral_antidiab_90d,
+    p.cnt_fills_statin_90d,
+    p.cnt_fills_beta_blocker_90d,
+    p.cnt_fills_opioid_90d,
+    p.cnt_fills_antipsychotic_180d,
+    p.cnt_fills_insulin_180d,
+    p.cnt_fills_oral_antidiab_180d,
+    p.cnt_fills_statin_180d,
+    p.cnt_fills_beta_blocker_180d,
+    p.cnt_fills_opioid_180d,
+    p.mpr_antipsychotic_90d,
+    p.mpr_insulin_90d,
+    p.mpr_oral_antidiab_90d,
+    p.mpr_statin_90d,
+    p.mpr_beta_blocker_90d,
+    p.mpr_opioid_90d,
+    p.mpr_antipsychotic_180d,
+    p.mpr_insulin_180d,
+    p.mpr_oral_antidiab_180d,
+    p.mpr_statin_180d,
+    p.mpr_beta_blocker_180d,
+    p.mpr_opioid_180d,
+    p.inconsistency_med_noncompliance,
+    p.inconsistency_appt_noncompliance,
     -- Newly added longitudinal and recency features.
     p.NOTE_HEALTH_DELTA_30D,
     p.NOTE_RISK_HARM_DELTA_30D,
@@ -287,14 +260,15 @@ SELECT
     p.CLAIMS_IN_LAST_30D_COUNT,
     p.ED_IN_LAST_30D_COUNT,
     p.IP_IN_LAST_30D_COUNT,
-    p.IS_FIRST_DIABETES,
-    p.IS_FIRST_MENTAL_HEALTH,
-    p.IS_FIRST_CARDIOVASCULAR,
-    p.IS_FIRST_PULMONARY,
-    p.IS_FIRST_KIDNEY,
-    p.IS_FIRST_SUD,
+    p.CLAIMS_IN_LAST_180D_COUNT,
+    p.ED_IN_LAST_180D_COUNT,
+    p.IP_IN_LAST_180D_COUNT,
     p.NEW_RX_ANTIPSYCH_30D,
     p.NEW_RX_INSULIN_30D,
+    p.NEW_RX_ORAL_ANTIDIAB_30D,
+    p.NEW_RX_STATIN_30D,
+    p.NEW_RX_BETA_BLOCKER_30D,
+    p.NEW_RX_OPIOID_30D,
     p.MONTHS_SINCE_FIRST_DIABETES,
     p.MONTHS_SINCE_FIRST_MENTAL_HEALTH,
     p.MONTHS_SINCE_FIRST_CARDIOVASCULAR,
@@ -322,7 +296,7 @@ SELECT
     
     -- A new feature to isolate the impact of notes.
     CASE
-        WHEN p.ENGAGEMENT_GROUP = 'ENGAGED_IN_PROGRAM' AND p.EVENT_DATE >= p.first_note_date
+        WHEN p.ENGAGEMENT_GROUP = 'engaged_in_program' AND p.EVENT_DATE >= p.first_note_date
         THEN 1
         ELSE 0
     END AS HAS_CARE_NOTES_POST_PERIOD,

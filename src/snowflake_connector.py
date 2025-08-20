@@ -170,6 +170,37 @@ class SnowflakeConnector:
             print(f"Error executing query to DataFrame: {e}")
             return None
 
+    def query_to_dataframe_streamed(self, query):
+        """
+        Executes a SQL query and streams the results as pandas DataFrames.
+
+        This method is useful for large datasets that may not fit into memory.
+        It executes the query and yields chunks of the result as pandas DataFrames.
+
+        Args:
+            query (str): The SQL query to execute.
+
+        Yields:
+            pd.DataFrame: A chunk of the result set as a pandas DataFrame.
+        """
+        if not self.cursor:
+            print("No active connection. Please connect first.")
+            return
+        
+        try:
+            print("Executing query for streaming...")
+            self.cursor.execute(query)
+            print("Query executed. Fetching results in batches...")
+            
+            for chunk in self.cursor.fetch_pandas_batches():
+                yield chunk
+            
+            print("Finished fetching all batches.")
+
+        except Exception as e:
+            print(f"Error streaming query to DataFrame: {e}")
+            return
+
     def get_tables(self):
         """
         Retrieves a list of tables in the current database and schema.

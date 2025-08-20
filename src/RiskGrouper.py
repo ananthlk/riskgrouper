@@ -149,10 +149,21 @@ def prepare_and_run_models(df, analysis_name, target='y_any_90d', base_output='m
     
     features = [col for col in df.columns if col not in non_feature_cols]
     # Ensure only numeric types are used for modeling and fill any remaining NaNs with 0.
-    X_train = train_df[features].fillna(0).select_dtypes(include=['number'])
+    X_train = train_df[features].select_dtypes(include=['number']).fillna(0)
     y_train = train_df[target]
-    X_val = val_df[features].fillna(0).select_dtypes(include=['number'])
+    
+    # Ensure validation set has the same columns as the training set.
+    X_val = val_df[features].select_dtypes(include=['number']).fillna(0)
     y_val = val_df[target]
+
+    # Align columns - crucial for preventing feature mismatch errors
+    train_cols = X_train.columns
+    X_val = X_val.reindex(columns=train_cols, fill_value=0)
+
+    if X_val.empty:
+        logger.warning(f"Validation set is empty for target '{target}' after cleaning. Skipping evaluation.")
+        run_summary['status'] = 'COMPLETED_NO_VALIDATION_DATA'
+        return
     
     logger.info(f"Training features shape: {X_train.shape}")
     logger.info(f"Validation features shape: {X_val.shape}")
@@ -182,8 +193,10 @@ def prepare_and_run_models(df, analysis_name, target='y_any_90d', base_output='m
     model = XGBClassifier(objective='binary:logistic', eval_metric='auc', use_label_encoder=False, scale_pos_weight=scale_pos_weight, random_state=42)
     
     # Use GridSearchCV to find the best model parameters based on ROC AUC.
-    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, scoring='roc_auc', cv=2, verbose=1, n_jobs=-1)
+    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, scoring='roc_auc', cv=2, verbose=1, n_jobs=2)
+    logger.info("Starting hyperparameter grid search...")
     grid_search.fit(X_train, y_train)
+    logger.info("Hyperparameter grid search complete.")
     best_model = grid_search.best_estimator_
     logger.info(f"Hyperparameter Tuning Complete. Best parameters found: {grid_search.best_params_}")
     run_summary['xgb_best_params'] = str(grid_search.best_params_)
@@ -263,33 +276,13 @@ def main():
     Main function to orchestrate the model training and evaluation pipeline.
 
     This function provides an interactive command-line interface to guide the user
-    through selecting an analysis type, fetching data, running models for multiple
-    targets, and logging the results.
+    through selecting an analysis type, running models for multiple
+    targets, and logging the results. It is optimized to be memory-efficient
+    by fetching data from Snowflake for one target at a time.
     """
     # --- Setup for a specific run ---
     run_timestamp = datetime.now()
-    # Initialize a dictionary to hold all summary information for the current run.
-    run_summary = {
-        'run_timestamp': run_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-        'analysis_type': None,
-        'target_variable': None,
-        'log_file': None,
-        'initial_rows': 0,
-        'training_rows_after_cleaning': 0,
-        'validation_rows_after_cleaning': 0,
-        'feature_count': 0,
-        'lr_accuracy': 0.0,
-        'xgb_accuracy': 0.0,
-        'xgb_auc': 0.0,
-        'xgb_best_params': None,
-        'predictions_file': None,
-        'feature_importance_file': None,
-        'shap_plot_file': None,
-        'top_individuals_file': None,
-        'summary_report_file': None,
-        'status': 'STARTED'
-    }
-
+    
     # --- Step 1: Prompt the user for the analysis type ---
     print("Risk Grouper ML Model Runner (XGBoost)")
     print("=" * 40)
@@ -310,14 +303,20 @@ def main():
         '1': "Master Dataset Analysis", '2': "Engaged Group Analysis", '3': "Claims Only Analysis"
     }
     analysis_name = analysis_name_map.get(choice)
-    run_summary['analysis_type'] = analysis_name
     
     # Setup the logger for this specific run.
     logger, log_filepath = setup_logger(analysis_name)
-    run_summary['log_file'] = log_filepath
     
+    # Initialize a base summary dictionary that will be copied for each target.
+    base_run_summary = {
+        'run_timestamp': run_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+        'analysis_type': analysis_name,
+        'log_file': log_filepath,
+        'status': 'STARTED'
+    }
+
     try:
-        # --- Step 2: Define the Snowflake query based on user's choice ---
+        # --- Step 2: Define the Snowflake query and target variables ---
         query_map = {
             '1': "SELECT * FROM TRANSFORMED_DATA._TEMP.MASTER_DATASET",
             '2': "SELECT * FROM TRANSFORMED_DATA._TEMP.ENGAGED_GROUP_DATASET",
@@ -325,48 +324,56 @@ def main():
         }
         query = query_map.get(choice)
 
-        # --- Step 3: Fetch data from Snowflake ---
-        df = pd.DataFrame()
-        logger.info(f"Fetching data from Snowflake for: {analysis_name}...")
-        # Use the SnowflakeConnector context manager for safe connection handling.
-        with SnowflakeConnector() as sf:
-            if sf.connection:
-                df = sf.query_to_dataframe(query)
-        
-        if df is None or df.empty:
-            logger.error("No data returned from Snowflake. Exiting.")
-            run_summary['status'] = 'FAILED - NO DATA'
-            return
-            
-        # Standardize column names to lower case for consistency.
-        df.columns = [col.lower() for col in df.columns]
-        logger.info(f"Successfully loaded {len(df)} records.")
-
-        # --- Step 4: Run the analysis for all target variables ---
-        # Create a unique output directory for this run to keep artifacts organized.
-        base_output_dir = f"output/{analysis_name.replace(' ', '_')}_{run_timestamp.strftime('%Y%m%d_%H%M%S')}"
-        if not os.path.exists(base_output_dir):
-            os.makedirs(base_output_dir)
-        
-        # Define all target variables to iterate through.
         target_vars = [
             'y_ed_30d', 'y_ed_60d', 'y_ed_90d',
             'y_ip_30d', 'y_ip_60d', 'y_ip_90d',
             'y_any_30d', 'y_any_60d', 'y_any_90d'
         ]
+
+        # Create a unique output directory for this run to keep artifacts organized.
+        base_output_dir = f"output/{analysis_name.replace(' ', '_')}_{run_timestamp.strftime('%Y%m%d_%H%M%S')}"
+        if not os.path.exists(base_output_dir):
+            os.makedirs(base_output_dir)
         logger.info(f"All outputs will be saved in the directory: {base_output_dir}")
-        
-        # Loop through each target and run the full modeling pipeline.
+
+        # --- Step 3: Loop through each target, fetch data, and run the model ---
+        # This approach loads data one target at a time to conserve memory.
         for target in target_vars:
-            # Create a fresh copy of the run summary for each target.
-            target_run_summary = run_summary.copy()
-            target_run_summary['target_variable'] = target
+            logger.info(f"--- Starting process for target: {target} ---")
             
-            logger.info(f"Running analysis for target: {target}")
+            # Create a fresh copy of the run summary for this specific target.
+            target_run_summary = base_run_summary.copy()
+            target_run_summary['target_variable'] = target
+
+            # Fetch data from Snowflake for the current target analysis.
+            df = pd.DataFrame()
+            logger.info(f"Fetching data from Snowflake for: {analysis_name}...")
+            logger.info(f"Executing query: {query}")
+            with SnowflakeConnector() as sf:
+                if sf.connection:
+                    df = sf.query_to_dataframe(query)
+            
+            if df is None or df.empty:
+                logger.error(f"No data returned from Snowflake for target {target}. Skipping.")
+                target_run_summary['status'] = 'FAILED - NO DATA'
+                # Log the failure and continue to the next target.
+                summary_df = pd.DataFrame([target_run_summary])
+                if os.path.exists(log_summary_file):
+                    summary_df.to_csv(log_summary_file, mode='a', header=False, index=False)
+                else:
+                    summary_df.to_csv(log_summary_file, mode='w', header=True, index=False)
+                continue
+
+            # Standardize column names to lower case for consistency.
+            df.columns = [col.lower() for col in df.columns]
+            logger.info(f"Successfully loaded {len(df)} records for target {target}.")
+
+            # Define the output file for this specific target's predictions.
             base_output_file = os.path.join(base_output_dir, f"{target}_predictions.csv")
             
+            # Run the modeling pipeline.
             prepare_and_run_models(
-                df.copy(), 
+                df, 
                 f"{analysis_name} - {target}", 
                 target=target, 
                 base_output=base_output_file, 
@@ -381,12 +388,19 @@ def main():
                 summary_df.to_csv(log_summary_file, mode='a', header=False, index=False)
             else:
                 summary_df.to_csv(log_summary_file, mode='w', header=True, index=False)
+            
+            # Explicitly free memory to prevent crashes on the next loop
+            logger.info(f"Releasing memory after processing target: {target}")
+            del df
+            import gc
+            gc.collect()
+            logger.info("Memory cleanup complete.")
 
     except Exception as e:
         logger.error(f"An unhandled exception occurred in main loop: {e}", exc_info=True)
-        run_summary['status'] = f'FAILED - {e}'
+        base_run_summary['status'] = f'FAILED - {e}'
         # Log the failure to the summary file.
-        summary_df = pd.DataFrame([run_summary])
+        summary_df = pd.DataFrame([base_run_summary])
         if os.path.exists(log_summary_file):
             summary_df.to_csv(log_summary_file, mode='a', header=False, index=False)
         else:

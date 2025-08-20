@@ -5,28 +5,28 @@ This project aims to develop a risk stratification model to predict the likeliho
 
 ## Technical Architecture
 The project is built with the following technical stack:
-- **Data Preparation & Feature Engineering**: Snowflake is used for data preparation, feature engineering, and for invoking Large Language Model (LLM) calls to stratify care team notes. The SQL scripts for these processes are located in the `scripts/sql` directory.
-- **Machine Learning Model**: A Python-based XGBoost model is used for prediction. The main model training and evaluation script is `src/main.py`.
-- **Database Connector**: A Python script (`src/snowflake_connector.py`) handles the connection to Snowflake using SSO authentication.
-- **Scoring**: The final scoring mechanism to identify high-risk individuals is yet to be determined (TBD) and will be implemented either in Snowflake or Python.
+- **Data Preparation & Feature Engineering**: Snowflake is used for data preparation and feature engineering. The SQL scripts for these processes are located in the `scripts/sql` directory. The pipeline is designed to be point-in-time correct, handling data lags for different sources (e.g., medical vs. pharmacy claims) to prevent data leakage.
+- **Machine Learning Model**: A Python-based XGBoost model is used for prediction. The main model training and evaluation script is `src/RiskGrouper.py`.
+- **Database Connector**: A Python script (`src/snowflake_connector.py`) handles the connection to Snowflake using SSO authentication and environment variables.
+- **Orchestration**: The main `main.py` script orchestrates the execution of the SQL pipeline and the ML model.
+- **Validation**: A data validation script (`scripts/validation/run_validation.py`) checks for issues like claim latency and data consistency post-pipeline execution.
 
 ## Project Structure
 ```
 .
 ├── docs/
 ├── scripts/
-│   └── sql/
-│       ├── baselines.sql
-│       ├── daily_aggegation.sql
-│       ├── data_prep.sql
-│       ├── data_split.sql
-│       ├── events.sql
-│       ├── Notes_agentic.sql
-│       └── Prompts.sql
+│   ├── sql/
+│   │   ├── events.sql
+│   │   └── daily_aggregation.sql
+│   ├── utils/
+│   └── validation/
 ├── src/
-│   ├── main.py
+│   ├── RiskGrouper.py
 │   └── snowflake_connector.py
+├── .env
 ├── .gitignore
+├── main.py
 ├── README.md
 └── requirements.txt
 ```
@@ -46,15 +46,25 @@ The project is built with the following technical stack:
     ```bash
     pip install -r requirements.txt
     ```
-4.  **Configure Snowflake Connection:**
-    Update the `SNOWFLAKE_CONFIG` dictionary in `src/snowflake_connector.py` with your credentials if they are different from the current setup.
+4.  **Configure Environment Variables:**
+    Create a `.env` file in the root directory and add your Snowflake credentials.
+    ```
+    SNOWFLAKE_USER=your_user
+    SNOWFLAKE_PASSWORD=your_password
+    SNOWFLAKE_ACCOUNT=your_account
+    SNOWFLAKE_WAREHOUSE=your_warehouse
+    SNOWFLAKE_DATABASE=your_database
+    SNOWFLAKE_SCHEMA=your_schema
+    ```
 
 ## Usage
-1.  **Data Preparation in Snowflake:**
-    Execute the SQL scripts in the `scripts/sql` directory in the recommended order to prepare the data in your Snowflake environment.
-2.  **Run the ML Model:**
-    Execute the main Python script to train the model and generate predictions:
+1.  **Run the full pipeline:**
+    Execute the main Python script to run the SQL data preparation pipeline and then train the model and generate predictions:
     ```bash
-    python src/main.py
+    python main.py
     ```
-    The script will prompt you to choose the type of analysis to run.
+2.  **Run Data Validation:**
+    After the pipeline has created the tables, you can run the validation script:
+    ```bash
+    python scripts/validation/run_validation.py
+    ```

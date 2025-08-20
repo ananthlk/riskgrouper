@@ -4,3 +4,4 @@ xgboost
 shap
 snowflake-connector-python
 matplotlib
+python-dotenv

@@ -105,3 +105,37 @@ SELECT
 FROM IDENTIFIER($TARGET_TABLE)
 GROUP BY 1, 2
 ORDER BY 1, 2;
+
+-- Validation 11: Thematic Label Validation (Nulls and Invalid Values)
+SELECT
+    'Null Checks' AS validation_type,
+    COUNT_IF(y_hiv_60d IS NULL) AS y_hiv_60d,
+    COUNT_IF(y_malnutrition_60d IS NULL) AS y_malnutrition_60d,
+    COUNT_IF(y_smi_60d IS NULL) AS y_smi_60d,
+    COUNT_IF(y_chf_60d IS NULL) AS y_chf_60d,
+    COUNT_IF(y_copd_60d IS NULL) AS y_copd_60d,
+    COUNT_IF(y_sud_60d IS NULL) AS y_sud_60d,
+    COUNT_IF(y_diabetes_60d IS NULL) AS y_diabetes_60d
+FROM IDENTIFIER($TARGET_TABLE)
+UNION ALL
+SELECT
+    'Invalid Value Checks (not 0 or 1)' AS validation_type,
+    COUNT_IF(y_hiv_60d NOT IN (0, 1)) AS y_hiv_60d,
+    COUNT_IF(y_malnutrition_60d NOT IN (0, 1)) AS y_malnutrition_60d,
+    COUNT_IF(y_smi_60d NOT IN (0, 1)) AS y_smi_60d,
+    COUNT_IF(y_chf_60d NOT IN (0, 1)) AS y_chf_60d,
+    COUNT_IF(y_copd_60d NOT IN (0, 1)) AS y_copd_60d,
+    COUNT_IF(y_sud_60d NOT IN (0, 1)) AS y_sud_60d,
+    COUNT_IF(y_diabetes_60d NOT IN (0, 1)) AS y_diabetes_60d
+FROM IDENTIFIER($TARGET_TABLE);
+
+-- Validation 12: Thematic Label Distribution (Positive Counts)
+SELECT
+    SUM(y_hiv_60d) as positive_hiv_60d,
+    SUM(y_malnutrition_60d) as positive_malnutrition_60d,
+    SUM(y_smi_60d) as positive_smi_60d,
+    SUM(y_chf_60d) as positive_chf_60d,
+    SUM(y_copd_60d) as positive_copd_60d,
+    SUM(y_sud_60d) as positive_sud_60d,
+    SUM(y_diabetes_60d) as positive_diabetes_60d
+FROM IDENTIFIER($TARGET_TABLE);

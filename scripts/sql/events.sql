@@ -106,7 +106,7 @@ lines AS (
  JOIN members m ON l.FH_ID = m.member_id
 ),
 
--- Diagnosis CTE: Joins with HCC mapping for clinical categorization.
+ -- Diagnosis CTE: Joins with HCC mapping for clinical categorization.
 diag_long AS (
  SELECT
  d.FH_ID AS member_id,
@@ -123,7 +123,15 @@ diag_long AS (
  CASE WHEN hcc.HCC_CODE IN (277, 279, 280) THEN 1 ELSE 0 END AS CNT_HCC_PULMONARY,
  CASE WHEN hcc.HCC_CODE IN (326, 327, 328, 329) THEN 1 ELSE 0 END AS CNT_HCC_KIDNEY,
  CASE WHEN hcc.HCC_CODE IN (135, 136, 137, 139) THEN 1 ELSE 0 END AS CNT_HCC_SUD,
- CASE WHEN hcc.HCC_CODE IS NOT NULL AND hcc.HCC_CODE NOT IN (36, 37, 38, 151, 152, 153, 154, 155, 222, 223, 224, 249, 263, 264, 277, 279, 280, 326, 327, 328, 329, 135, 136, 137, 139) THEN 1 ELSE 0 END AS CNT_HCC_OTHER_COMPLEX
+ CASE WHEN hcc.HCC_CODE IS NOT NULL AND hcc.HCC_CODE NOT IN (36, 37, 38, 151, 152, 153, 154, 155, 222, 223, 224, 249, 263, 264, 277, 279, 280, 326, 327, 328, 329, 135, 136, 137, 139) THEN 1 ELSE 0 END AS CNT_HCC_OTHER_COMPLEX,
+ -- NEW Thematic flags for label generation
+ CASE WHEN hcc.HCC_CODE IN (1) THEN 1 ELSE 0 END AS has_hiv,
+ CASE WHEN hcc.HCC_CODE IN (21) THEN 1 ELSE 0 END AS has_malnutrition,
+ CASE WHEN hcc.HCC_CODE IN (58, 152, 59) THEN 1 ELSE 0 END AS has_smi,
+ CASE WHEN hcc.HCC_CODE IN (226) THEN 1 ELSE 0 END AS has_chf,
+ CASE WHEN hcc.HCC_CODE IN (264) THEN 1 ELSE 0 END AS has_copd,
+ CASE WHEN hcc.HCC_CODE IN (54, 55, 56) THEN 1 ELSE 0 END AS has_sud_thematic,
+ CASE WHEN hcc.HCC_CODE IN (36, 37, 38) THEN 1 ELSE 0 END AS has_diabetes
  FROM IDENTIFIER($CLAIM_DIAGNOSIS_FQN) d
  JOIN members m ON d.FH_ID = m.member_id
  LEFT JOIN IDENTIFIER($HCC_MAPPING_FQN) hcc
@@ -131,9 +139,7 @@ diag_long AS (
  WHERE d.ICD10CM_CODE IS NOT NULL
  AND hcc.MODEL_VERSION = 'CMS-HCC-V28'
  AND hcc.PAYMENT_YEAR = 2025
-),
-
--- Stratified Notes CTE: Unstructured data from care notes.
+),-- Stratified Notes CTE: Unstructured data from care notes.
 notes_long AS (
  SELECT
  n.FH_ID AS member_id,
@@ -173,6 +179,14 @@ claim_events AS (
  dx.CNT_HCC_KIDNEY,
  dx.CNT_HCC_SUD,
  dx.CNT_HCC_OTHER_COMPLEX,
+ -- NEW Thematic flags
+ dx.has_hiv,
+ dx.has_malnutrition,
+ dx.has_smi,
+ dx.has_chf,
+ dx.has_copd,
+ dx.has_sud_thematic,
+ dx.has_diabetes,
  NULL::STRING AS hcpcs_category,
  NULL::STRING AS hcpcs_category_short,
  ln.hcpcs_code AS hcpcs_code,
@@ -228,6 +242,14 @@ claim_events AS (
  NULL::NUMBER AS CNT_HCC_KIDNEY,
  NULL::NUMBER AS CNT_HCC_SUD,
  NULL::NUMBER AS CNT_HCC_OTHER_COMPLEX,
+  -- NEW Thematic flags
+ NULL::NUMBER AS has_hiv,
+ NULL::NUMBER AS has_malnutrition,
+ NULL::NUMBER AS has_smi,
+ NULL::NUMBER AS has_chf,
+ NULL::NUMBER AS has_copd,
+ NULL::NUMBER AS has_sud_thematic,
+ NULL::NUMBER AS has_diabetes,
  NULL::STRING AS hcpcs_category,
  NULL::STRING AS hcpcs_category_short,
  ln.hcpcs_code AS hcpcs_code,
@@ -266,6 +288,14 @@ claim_events AS (
  NULL::NUMBER AS CNT_HCC_KIDNEY,
  NULL::NUMBER AS CNT_HCC_SUD,
  NULL::NUMBER AS CNT_HCC_OTHER_COMPLEX,
+  -- NEW Thematic flags
+ NULL::NUMBER AS has_hiv,
+ NULL::NUMBER AS has_malnutrition,
+ NULL::NUMBER AS has_smi,
+ NULL::NUMBER AS has_chf,
+ NULL::NUMBER AS has_copd,
+ NULL::NUMBER AS has_sud_thematic,
+ NULL::NUMBER AS has_diabetes,
  hpcscat.HCPCS_CATEGORY AS hcpcs_category,
  hpcscat.HCPCS_CATEGORY_SHORT AS hpcscat_category_short,
  ln.hcpcs_code AS hcpcs_code,
@@ -306,6 +336,14 @@ note_events AS (
  NULL::NUMBER AS CNT_HCC_KIDNEY,
  NULL::NUMBER AS CNT_HCC_SUD,
  NULL::NUMBER AS CNT_HCC_OTHER_COMPLEX,
+  -- NEW Thematic flags
+ NULL::NUMBER AS has_hiv,
+ NULL::NUMBER AS has_malnutrition,
+ NULL::NUMBER AS has_smi,
+ NULL::NUMBER AS has_chf,
+ NULL::NUMBER AS has_copd,
+ NULL::NUMBER AS has_sud_thematic,
+ NULL::NUMBER AS has_diabetes,
  NULL::STRING AS hcpcs_category,
  NULL::STRING AS hpcscat_category_short,
  NULL::STRING AS hcpcs_code,
@@ -363,6 +401,14 @@ pharmacy_events AS (
         NULL::NUMBER AS CNT_HCC_KIDNEY,
         NULL::NUMBER AS CNT_HCC_SUD,
         NULL::NUMBER AS CNT_HCC_OTHER_COMPLEX,
+        -- NEW Thematic flags
+        NULL::NUMBER AS has_hiv,
+        NULL::NUMBER AS has_malnutrition,
+        NULL::NUMBER AS has_smi,
+        NULL::NUMBER AS has_chf,
+        NULL::NUMBER AS has_copd,
+        NULL::NUMBER AS has_sud_thematic,
+        NULL::NUMBER AS has_diabetes,
         NULL::STRING AS hcpcs_category,
         NULL::STRING AS hpcscat_category_short,
         NULL::STRING AS hcpcs_code,
@@ -417,6 +463,14 @@ health_check_events AS (
         NULL::NUMBER AS CNT_HCC_KIDNEY,
         NULL::NUMBER AS CNT_HCC_SUD,
         NULL::NUMBER AS CNT_HCC_OTHER_COMPLEX,
+        -- NEW Thematic flags
+        NULL::NUMBER AS has_hiv,
+        NULL::NUMBER AS has_malnutrition,
+        NULL::NUMBER AS has_smi,
+        NULL::NUMBER AS has_chf,
+        NULL::NUMBER AS has_copd,
+        NULL::NUMBER AS has_sud_thematic,
+        NULL::NUMBER AS has_diabetes,
         NULL::STRING AS hcpcs_category,
         NULL::STRING AS hcpcs_category_short,
         NULL::STRING AS hcpcs_code,
@@ -471,6 +525,14 @@ zus_auth_events AS (
         NULL::NUMBER AS CNT_HCC_KIDNEY,
         NULL::NUMBER AS CNT_HCC_SUD,
         NULL::NUMBER AS CNT_HCC_OTHER_COMPLEX,
+        -- NEW Thematic flags
+        NULL::NUMBER AS has_hiv,
+        NULL::NUMBER AS has_malnutrition,
+        NULL::NUMBER AS has_smi,
+        NULL::NUMBER AS has_chf,
+        NULL::NUMBER AS has_copd,
+        NULL::NUMBER AS has_sud_thematic,
+        NULL::NUMBER AS has_diabetes,
         NULL::STRING AS hcpcs_category,
         NULL::STRING AS hcpcs_category_short,
         NULL::STRING AS hcpcs_code,
@@ -524,6 +586,14 @@ uhc_auth_events AS (
         NULL::NUMBER AS CNT_HCC_KIDNEY,
         NULL::NUMBER AS CNT_HCC_SUD,
         NULL::NUMBER AS CNT_HCC_OTHER_COMPLEX,
+        -- NEW Thematic flags
+        NULL::NUMBER AS has_hiv,
+        NULL::NUMBER AS has_malnutrition,
+        NULL::NUMBER AS has_smi,
+        NULL::NUMBER AS has_chf,
+        NULL::NUMBER AS has_copd,
+        NULL::NUMBER AS has_sud_thematic,
+        NULL::NUMBER AS has_diabetes,
         NULL::STRING AS hcpcs_category,
         NULL::STRING AS hcpcs_category_short,
         NULL::STRING AS hcpcs_code,
@@ -577,6 +647,14 @@ adt_events AS (
         NULL::NUMBER AS CNT_HCC_KIDNEY,
         NULL::NUMBER AS CNT_HCC_SUD,
         NULL::NUMBER AS CNT_HCC_OTHER_COMPLEX,
+        -- NEW Thematic flags
+        NULL::NUMBER AS has_hiv,
+        NULL::NUMBER AS has_malnutrition,
+        NULL::NUMBER AS has_smi,
+        NULL::NUMBER AS has_chf,
+        NULL::NUMBER AS has_copd,
+        NULL::NUMBER AS has_sud_thematic,
+        NULL::NUMBER AS has_diabetes,
         NULL::STRING AS hcpcs_category,
         NULL::STRING AS hcpcs_category_short,
         NULL::STRING AS hcpcs_code,
@@ -648,12 +726,20 @@ daily_signal AS (
 
 -- NEW: Claim-Only Daily Signal CTE for Label Generation
 -- This ensures that look-ahead labels are based only on claims data, which is the source of truth.
-claim_daily_signal AS (
+ claim_daily_signal AS (
     SELECT
         member_id,
         event_date,
         MAX(IFF(is_ed_event, 1, 0)) AS any_ed_on_date,
-        MAX(IFF(is_ip_event, 1, 0)) AS any_ip_on_date
+        MAX(IFF(is_ip_event, 1, 0)) AS any_ip_on_date,
+        -- NEW Thematic flags for label generation
+        MAX(IFF(has_hiv > 0 AND (is_ed_event OR is_ip_event), 1, 0)) AS has_hiv,
+        MAX(IFF(has_malnutrition > 0 AND (is_ed_event OR is_ip_event), 1, 0)) AS has_malnutrition,
+        MAX(IFF(has_smi > 0 AND (is_ed_event OR is_ip_event), 1, 0)) AS has_smi,
+        MAX(IFF(has_chf > 0 AND (is_ed_event OR is_ip_event), 1, 0)) AS has_chf,
+        MAX(IFF(has_copd > 0 AND (is_ed_event OR is_ip_event), 1, 0)) AS has_copd,
+        MAX(IFF(has_sud_thematic > 0 AND (is_ed_event OR is_ip_event), 1, 0)) AS has_sud,
+        MAX(IFF(has_diabetes > 0 AND (is_ed_event OR is_ip_event), 1, 0)) AS has_diabetes
     FROM events_ctx
     WHERE event_type LIKE 'CLAIM_%'
     GROUP BY member_id, event_date
@@ -669,11 +755,17 @@ labels AS (
  MAX(ds.any_ed_on_date) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 90 FOLLOWING) AS y_ed_90d,
  MAX(ds.any_ip_on_date) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 30 FOLLOWING) AS y_ip_30d,
  MAX(ds.any_ip_on_date) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_ip_60d,
- MAX(ds.any_ip_on_date) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 90 FOLLOWING) AS y_ip_90d
+ MAX(ds.any_ip_on_date) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 90 FOLLOWING) AS y_ip_90d,
+ -- NEW Thematic labels
+ MAX(ds.has_hiv) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_hiv_60d,
+ MAX(ds.has_malnutrition) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_malnutrition_60d,
+ MAX(ds.has_smi) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_smi_60d,
+ MAX(ds.has_chf) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_chf_60d,
+ MAX(ds.has_copd) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_copd_60d,
+ MAX(ds.has_sud) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_sud_60d,
+ MAX(ds.has_diabetes) OVER (PARTITION BY ds.member_id ORDER BY ds.event_date ROWS BETWEEN 1 FOLLOWING AND 60 FOLLOWING) AS y_diabetes_60d
  FROM claim_daily_signal ds -- UPDATED: Use claim-only signal for labels
-)
-
--- 13) Final SELECT: Joins all CTEs into the final flattened events table.
+)-- 13) Final SELECT: Joins all CTEs into the final flattened events table.
 SELECT
  e.member_id,
  m.market,
@@ -726,6 +818,14 @@ SELECT
  GREATEST(COALESCE(l.y_ed_30d,0), COALESCE(l.y_ip_30d,0)) AS y_any_30d,
  GREATEST(COALESCE(l.y_ed_60d,0), COALESCE(l.y_ip_60d,0)) AS y_any_60d,
  GREATEST(COALESCE(l.y_ed_90d,0), COALESCE(l.y_ip_90d,0)) AS y_any_90d,
+ -- NEW Thematic labels
+ l.y_hiv_60d,
+ l.y_malnutrition_60d,
+ l.y_smi_60d,
+ l.y_chf_60d,
+ l.y_copd_60d,
+ l.y_sud_60d,
+ l.y_diabetes_60d,
  -- NEW: Add source flags to final output
  ds.is_ip_adt,
  ds.is_ip_auth,

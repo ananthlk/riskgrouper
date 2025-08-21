@@ -15,23 +15,39 @@ The `CASE` statements for gender encoding are not correctly handling all cases, 
 2.  Made the gender check case-insensitive using `UPPER()`.
 
 **Status:**
-Open. Further investigation is needed to identify the root cause of the issue.
+Resolved. This was addressed during the pipeline re-architecture, which ensured a single, consistent source for member demographic information.
 
 ## 2025-08-20: High Volume of Dropped Rows Due to Null Target Variable
 
 **Description:**
-During model training, a very large number of rows are being dropped from both the training and validation sets. For example, over 3.6 million rows were dropped from the training set when preparing data for the `y_ed_30d` target.
+During model training, a very large number of rows were being dropped from both the training and validation sets. For example, over 3.6 million rows were dropped from the training set when preparing data for the `y_ed_30d` target.
 
-**File:** `src/RiskGrouper.py` (data cleaning step) and potentially upstream in `scripts/sql/data_prep.sql`.
+**File:** `src/RiskGrouper.py` (data cleaning step) and `scripts/sql/daily_aggregation.sql`.
 
 **Problematic Logic:**
-The script's data preparation phase includes `train_df.dropna(subset=[target], inplace=True)`. This is dropping rows where the target variable is `NULL`.
+The script's data preparation phase was dropping rows where the target variable was `NULL`. The root cause was that the SQL script generating the target variables was assigning `NULL` instead of `0` for non-events.
 
-**Hypothesis:**
-The root cause is likely in the SQL script that generates the target variables (`y_ed_30d`, etc.). When a member has no relevant event (e.g., no ED visit in 30 days), the target is being assigned `NULL` instead of `0`. This leads to massive data loss during the `dropna` step.
+**Resolution:**
+The `daily_aggregation.sql` script was updated to wrap all target labels with `COALESCE(label, 0)`. This ensures that all member-days have a non-null target value, preventing data loss.
 
 **Status:**
-Open. The SQL logic for creating target variables needs to be reviewed and fixed to use `0` for non-events instead of `NULL`.
+Resolved.
+
+## 2025-08-20: Data Type Mismatch for Thematic Labels
+
+**Description:**
+The initial implementation of the new thematic labels (`y_hiv_60d`, `y_smi_60d`, etc.) in `events.sql` created them as `BOOLEAN` values. However, the downstream aggregation in `daily_aggregation.sql` expected `NUMBER` values, causing a data type mismatch error when the view was created.
+
+**File:** `scripts/sql/events.sql`
+
+**Problematic Logic:**
+The `MAX(...) OVER (...)` window function was creating boolean flags, but the final aggregation required numeric values for `MAX()` aggregation.
+
+**Resolution:**
+The logic in the `claim_daily_signal` CTE within `events.sql` was updated to `CAST(... AS NUMBER)` for all the new `y_*_60d` labels, ensuring they were created with the correct data type.
+
+**Status:**
+Resolved.
 
 # Enhancements
 
@@ -46,4 +62,4 @@ The model's predictive power could be improved by including the Hierarchical Con
 3.  Ensure the new feature is included in the model training process.
 
 **Status:**
-Pending.
+Completed. HCC features (e.g., `cnt_hcc_diabetes_90d`) were integrated into the `daily_aggregation.sql` script.

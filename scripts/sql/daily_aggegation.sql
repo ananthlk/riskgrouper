@@ -334,7 +334,15 @@ day_labels AS (
  MAX(y_ip_90d) AS y_ip_90d,
  MAX(y_any_30d) AS y_any_30d,
  MAX(y_any_60d) AS y_any_60d,
- MAX(y_any_90d) AS y_any_90d
+ MAX(y_any_90d) AS y_any_90d,
+ -- NEW Thematic labels
+ MAX(y_hiv_60d) AS y_hiv_60d,
+ MAX(y_malnutrition_60d) AS y_malnutrition_60d,
+ MAX(y_smi_60d) AS y_smi_60d,
+ MAX(y_chf_60d) AS y_chf_60d,
+ MAX(y_copd_60d) AS y_copd_60d,
+ MAX(y_sud_60d) AS y_sud_60d,
+ MAX(y_diabetes_60d) AS y_diabetes_60d
  FROM base
  GROUP BY member_id, event_date
 ),
@@ -440,9 +448,23 @@ day_features AS (
         -- Outpatient lookback for inconsistency features
         lb.cnt_outpatient_90_180d,
         -- Labels
-        l.y_ed_30d, l.y_ed_60d, l.y_ed_90d,
-        l.y_ip_30d, l.y_ip_60d, l.y_ip_90d,
-        l.y_any_30d, l.y_any_60d, l.y_any_90d
+        COALESCE(l.y_ed_30d, 0) AS y_ed_30d,
+        COALESCE(l.y_ed_60d, 0) AS y_ed_60d,
+        COALESCE(l.y_ed_90d, 0) AS y_ed_90d,
+        COALESCE(l.y_ip_30d, 0) AS y_ip_30d,
+        COALESCE(l.y_ip_60d, 0) AS y_ip_60d,
+        COALESCE(l.y_ip_90d, 0) AS y_ip_90d,
+        COALESCE(l.y_any_30d, 0) AS y_any_30d,
+        COALESCE(l.y_any_60d, 0) AS y_any_60d,
+        COALESCE(l.y_any_90d, 0) AS y_any_90d,
+        -- NEW Thematic labels
+        COALESCE(l.y_hiv_60d, 0) AS y_hiv_60d,
+        COALESCE(l.y_malnutrition_60d, 0) AS y_malnutrition_60d,
+        COALESCE(l.y_smi_60d, 0) AS y_smi_60d,
+        COALESCE(l.y_chf_60d, 0) AS y_chf_60d,
+        COALESCE(l.y_copd_60d, 0) AS y_copd_60d,
+        COALESCE(l.y_sud_60d, 0) AS y_sud_60d,
+        COALESCE(l.y_diabetes_60d, 0) AS y_diabetes_60d
     FROM idx i
     INNER JOIN member_base_info m ON m.member_id = i.member_id
     LEFT JOIN day_claims c ON c.member_id = i.member_id AND c.event_date = i.event_date

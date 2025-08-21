@@ -164,3 +164,33 @@ SELECT
 FROM TRANSFORMED_DATA._TEMP.EVENTS_DAILY_AGG
 WHERE event_type LIKE 'CLAIM_%'
   AND event_date > DATEADD('month', -4, CURRENT_DATE());
+
+
+-- ================================================================================
+-- Validation Check 8: Thematic Label Validation
+-- Purpose: To ensure the new thematic labels are correctly generated, with no
+--          nulls and only containing binary (0 or 1) values.
+-- ================================================================================
+-- Check for NULLs in new thematic labels
+SELECT 'Null Check: y_hiv_60d' AS test_name, COUNT(*) AS null_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_hiv_60d IS NULL
+UNION ALL
+SELECT 'Null Check: y_malnutrition_60d' AS test_name, COUNT(*) AS null_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_malnutrition_60d IS NULL
+UNION ALL
+SELECT 'Null Check: y_smi_60d' AS test_name, COUNT(*) AS null_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_smi_60d IS NULL
+UNION ALL
+SELECT 'Null Check: y_chf_60d' AS test_name, COUNT(*) AS null_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_chf_60d IS NULL
+UNION ALL
+SELECT 'Null Check: y_copd_60d' AS test_name, COUNT(*) AS null_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_copd_60d IS NULL
+UNION ALL
+SELECT 'Null Check: y_sud_60d' AS test_name, COUNT(*) AS null_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_sud_60d IS NULL
+UNION ALL
+SELECT 'Null Check: y_diabetes_60d' AS test_name, COUNT(*) AS null_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_diabetes_60d IS NULL;
+
+-- Check for values other than 0 or 1 in new thematic labels
+SELECT 'Value Check: y_hiv_60d' AS test_name, COUNT(*) AS invalid_value_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_hiv_60d NOT IN (0, 1);
+SELECT 'Value Check: y_malnutrition_60d' AS test_name, COUNT(*) AS invalid_value_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_malnutrition_60d NOT IN (0, 1);
+SELECT 'Value Check: y_smi_60d' AS test_name, COUNT(*) AS invalid_value_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_smi_60d NOT IN (0, 1);
+SELECT 'Value Check: y_chf_60d' AS test_name, COUNT(*) AS invalid_value_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_chf_60d NOT IN (0, 1);
+SELECT 'Value Check: y_copd_60d' AS test_name, COUNT(*) AS invalid_value_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_copd_60d NOT IN (0, 1);
+SELECT 'Value Check: y_sud_60d' AS test_name, COUNT(*) AS invalid_value_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_sud_60d NOT IN (0, 1);
+SELECT 'Value Check: y_diabetes_60d' AS test_name, COUNT(*) AS invalid_value_count FROM TRANSFORMED_DATA._TEMP.EVENTS_WITH_LABELS_RX WHERE y_diabetes_60d NOT IN (0, 1);

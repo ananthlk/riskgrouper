@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-08-20
+
+### Added
+- **New Thematic, Condition-Specific Labels**:
+  - Created seven new 60-day look-ahead labels for key clinical conditions: HIV, Malnutrition, SMI (Serious Mental Illness), CHF (Congestive Heart Failure), COPD, SUD (Substance Use Disorder), and Diabetes.
+  - These labels are triggered by diagnoses found on Inpatient (IP) or Emergency Department (ED) claims.
+  - Implemented in `scripts/sql/events.sql` and propagated through `scripts/sql/daily_aggregation.sql`.
+- **New Validation Scripts**:
+  - Added `scripts/validation/validate_events.sql` to check the output of the `events.sql` script.
+  - Added `scripts/validation/validate_daily_aggregation.sql` to check the output of the `daily_aggregation.sql` script.
+
+### Changed
+- **File Organization**:
+  - Reorganized utility scripts (`run_analysis.py`, `run_sql_script.py`, `get_table_def.py`) into the `scripts/utils/` directory.
+  - Moved analysis-related SQL (`top_conditions_analysis.sql`) to a new `scripts/analysis/` directory.
+
 ## [1.2.0] - 2025-08-19
 
 ### Changed

@@ -109,6 +109,18 @@ member_split AS (
         SELECT DISTINCT MEMBER_ID FROM daily_agg
     )
 ),
+raf_scores AS (
+    -- Step 6b: Retrieve annual RAF scores for each member, filtered for V24 model.
+    SELECT
+        FH_ID AS MEMBER_ID,
+        PAYMENT_YEAR,
+        PAYER_CRAF,
+        ALL_CLAIMS_CRAF,
+        CHRONIC_CRAF,
+        ACUTE_CRAF
+    FROM TRANSFORMED_DATA.PROD_SNAPSHOT.MEMBER_RAF_YEARLY_SNAPSHOT
+    WHERE MODEL_VERSION = 'V24'
+),
 prepped_features AS (
     -- Step 6: Create a single comprehensive dataset with all engineered features.
     SELECT
@@ -151,7 +163,12 @@ prepped_features AS (
         DAYOFWEEK(base.EVENT_DATE) AS day_of_week,
         MONTH(base.EVENT_DATE) AS month,
         YEAR(base.EVENT_DATE) AS year,
-        CASE WHEN base.DOB > base.EVENT_DATE THEN NULL ELSE DATEDIFF(day, base.DOB, base.EVENT_DATE) / 365.25 END AS age
+        CASE WHEN base.DOB > base.EVENT_DATE THEN NULL ELSE DATEDIFF(day, base.DOB, base.EVENT_DATE) / 365.25 END AS age,
+        -- RAF Scores
+        raf.PAYER_CRAF,
+        raf.ALL_CLAIMS_CRAF,
+        raf.CHRONIC_CRAF,
+        raf.ACUTE_CRAF
     FROM daily_agg AS base
     LEFT JOIN longitudinal_features AS lf
         ON base.MEMBER_ID = lf.MEMBER_ID AND base.EVENT_DATE = lf.EVENT_DATE
@@ -161,6 +178,8 @@ prepped_features AS (
         ON base.MEMBER_ID = hcc.MEMBER_ID
     LEFT JOIN first_rx_dates AS rx
         ON base.MEMBER_ID = rx.MEMBER_ID
+    LEFT JOIN raf_scores AS raf
+        ON base.MEMBER_ID = raf.MEMBER_ID AND YEAR(base.EVENT_DATE) = raf.PAYMENT_YEAR - 1
 )
 SELECT
     -- Step 7: Final SELECT statement to create the modeling dataset.
@@ -173,10 +192,16 @@ SELECT
     p.year,
     p.age,
     
+    -- RAF/HCC Scores
+    COALESCE(p.PAYER_CRAF, 1.5) AS PAYER_CRAF,
+    COALESCE(p.ALL_CLAIMS_CRAF, 1.5) AS ALL_CLAIMS_CRAF,
+    COALESCE(p.CHRONIC_CRAF, 1.5) AS CHRONIC_CRAF,
+    COALESCE(p.ACUTE_CRAF, 1.5) AS ACUTE_CRAF,
+    
     -- One-hot encoded features for categorical data.
-    CASE WHEN UPPER(p.GENDER) = 'M' THEN 1 ELSE 0 END AS IS_MALE,
-    CASE WHEN UPPER(p.GENDER) = 'F' THEN 1 ELSE 0 END AS IS_FEMALE,
-    CASE WHEN UPPER(p.GENDER) NOT IN ('M', 'F') OR p.GENDER IS NULL THEN 1 ELSE 0 END AS IS_GENDER_UNKNOWN,
+    CASE WHEN LEFT(UPPER(p.GENDER), 1) = 'M' THEN 1 ELSE 0 END AS IS_MALE,
+    CASE WHEN LEFT(UPPER(p.GENDER), 1) = 'F' THEN 1 ELSE 0 END AS IS_FEMALE,
+    CASE WHEN LEFT(UPPER(p.GENDER), 1) NOT IN ('M', 'F') OR p.GENDER IS NULL THEN 1 ELSE 0 END AS IS_GENDER_UNKNOWN,
     CASE WHEN p.ENGAGEMENT_GROUP = 'engaged_in_program' THEN 1 ELSE 0 END AS IS_ENGAGED,
     CASE WHEN p.ENGAGEMENT_GROUP = 'selected_not_engaged' THEN 1 ELSE 0 END AS IS_SELECTED_NOT_ENGAGED,
     CASE WHEN p.ENGAGEMENT_GROUP = 'not_selected_for_engagement' THEN 1 ELSE 0 END AS IS_NOT_SELECTED_FOR_ENGAGEMENT,
@@ -308,4 +333,8 @@ FROM
 JOIN
     member_split AS ms
 ON
-    p.MEMBER_ID = ms.MEMBER_ID;
+    p.MEMBER_ID = ms.MEMBER_ID
+LEFT JOIN
+    raf_scores AS raf
+ON
+    p.MEMBER_ID = raf.MEMBER_ID AND p.year = raf.PAYMENT_YEAR - 1;

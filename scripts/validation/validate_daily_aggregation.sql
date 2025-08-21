@@ -126,3 +126,38 @@ FROM (
     GROUP BY 1, 2
     HAVING COUNT(*) > 1
 );
+
+-- Validation 10: Thematic Label Validation (Nulls and Invalid Values)
+SELECT
+    'Null Checks' AS validation_type,
+    COUNT_IF(y_hiv_60d IS NULL) AS y_hiv_60d,
+    COUNT_IF(y_malnutrition_60d IS NULL) AS y_malnutrition_60d,
+    COUNT_IF(y_smi_60d IS NULL) AS y_smi_60d,
+    COUNT_IF(y_chf_60d IS NULL) AS y_chf_60d,
+    COUNT_IF(y_copd_60d IS NULL) AS y_copd_60d,
+    COUNT_IF(y_sud_60d IS NULL) AS y_sud_60d,
+    COUNT_IF(y_diabetes_60d IS NULL) AS y_diabetes_60d
+FROM IDENTIFIER($TARGET_TABLE)
+UNION ALL
+SELECT
+    'Invalid Value Checks (not 0 or 1)' AS validation_type,
+    COUNT_IF(y_hiv_60d NOT IN (0, 1)) AS y_hiv_60d,
+    COUNT_IF(y_malnutrition_60d NOT IN (0, 1)) AS y_malnutrition_60d,
+    COUNT_IF(y_smi_60d NOT IN (0, 1)) AS y_smi_60d,
+    COUNT_IF(y_chf_60d NOT IN (0, 1)) AS y_chf_60d,
+    COUNT_IF(y_copd_60d NOT IN (0, 1)) AS y_copd_60d,
+    COUNT_IF(y_sud_60d NOT IN (0, 1)) AS y_sud_60d,
+    COUNT_IF(y_diabetes_60d NOT IN (0, 1)) AS y_diabetes_60d
+FROM IDENTIFIER($TARGET_TABLE);
+
+-- Validation 11: Thematic Label Distribution (Unique Members)
+SELECT
+    'Unique Members with Thematic Label' AS validation_type,
+    APPROX_COUNT_DISTINCT(IFF(y_hiv_60d = 1, member_id, NULL)) AS unique_members_hiv_60d,
+    APPROX_COUNT_DISTINCT(IFF(y_malnutrition_60d = 1, member_id, NULL)) AS unique_members_malnutrition_60d,
+    APPROX_COUNT_DISTINCT(IFF(y_smi_60d = 1, member_id, NULL)) AS unique_members_smi_60d,
+    APPROX_COUNT_DISTINCT(IFF(y_chf_60d = 1, member_id, NULL)) AS unique_members_chf_60d,
+    APPROX_COUNT_DISTINCT(IFF(y_copd_60d = 1, member_id, NULL)) AS unique_members_copd_60d,
+    APPROX_COUNT_DISTINCT(IFF(y_sud_60d = 1, member_id, NULL)) AS unique_members_sud_60d,
+    APPROX_COUNT_DISTINCT(IFF(y_diabetes_60d = 1, member_id, NULL)) AS unique_members_diabetes_60d
+FROM IDENTIFIER($TARGET_TABLE);

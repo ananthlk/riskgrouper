@@ -1,0 +1,11 @@
+{
+  "run_id": "run_534895718",
+  "python_version": "3.13.5",
+  "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+  "packages": {
+    "sklearn": "1.7.1",
+    "xgboost": "3.0.4",
+    "pandas": "2.3.1"
+  },
+  "git_commit": "N/A"
+}

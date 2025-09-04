@@ -1,0 +1,177 @@
+-- 200_consolidated_dataset.sql
+-- Consolidates all flags and prediction labels into a single dataset for modeling
+-- Combines metrics from various modules including demographics, engagement, diagnosis, treatment, and prediction labels
+
+CREATE OR REPLACE TABLE TRANSFORMED_DATA._TEMP.AL_REG_CONSOLIDATED_DATASET AS
+WITH member_months AS (
+  SELECT FH_ID, EFFECTIVE_MONTH_START
+  FROM TRANSFORMED_DATA._TEMP.INT_MEMBER_MONTHS_ORDERED
+),
+
+-- Join demographics and stratified flags
+member_demographics AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    is_male, is_female, is_gender_unknown, age_bucket, is_age_15_19, is_age_20_24, is_age_25_29, is_age_30_34, is_age_35_39, is_age_40_44, is_age_45_49, is_age_50_54, is_age_55_59, is_age_60_64, is_age_65_69, is_age_70_74, is_age_75_79, is_age_80_84, is_age_85_89, is_age_90_94, is_age_95_99, is_age_100_plus,IS_ENROLLED,
+    IS_REINSTATED,IS_DISENROLLED
+  FROM TRANSFORMED_DATA._TEMP.INT_MEMBER_MONTHS_UNIFIED
+),
+-- Join insurance products
+insurance_products AS (
+  SELECT
+    FH_ID,
+    IS_ABD, IS_TANF, IS_EXPANSION, IS_DSNP, IS_OTHER
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_WITH_PRODUCTS
+),
+
+-- Join market features
+market_features AS (
+  SELECT
+    FH_ID,
+    is_market_canton, is_market_youngstown, is_market_memphis, is_market_dayton, is_market_richmond, is_market_cleveland, is_market_chattanooga, is_market_detROIT, is_market_orlando, is_market_toledo, is_market_upper_east_tn, is_market_akron, is_market_columbus, is_market_nashville, is_market_jacksonville, is_market_cincinnati, is_market_fairfax, is_market_support, is_market_tacoma, is_market_miami, is_market_knoxville, is_market_southwest_virginia, is_market_other
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_MARKET_FEATURES
+),
+
+-- Join engagement metrics
+engagement_metrics AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    is_ever_selected, is_selected_month, is_ever_engaged, is_engaged_month, total_contact_attempts, successful_contact_attempts, unsuccessful_contact_attempts, success_rate_this_month, is_tried_contact_in_month, is_succefful_contact_in_month, is_intense_attempt_in_month, is_intense_support_in_month, became_non_responsive, became_responsive, increase_in_missed_calls, new_missed_calls, started_texting, stopped_texting, started_intense_texting, stopped_intense_texting, success_rate_increased, success_rate_decreased
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_ENGAGEMENT_TRENDS
+),
+
+-- Join diagnosis flags
+diagnosis_flags AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    HAS_DIABETES, HAS_MENTAL_HEALTH, HAS_CARDIOVASCULAR, HAS_PULMONARY, HAS_KIDNEY, HAS_SUD, HAS_OTHER_COMPLEX
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_CONDITION_FLAGS
+),
+
+-- Join treatment metrics
+abd_treatment_metrics AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    DIABETES_TREATMENT_REQUIRED, MH_TREATMENT_REQUIRED, CARDIO_TREATMENT_REQUIRED, PULMONARY_TREATMENT_REQUIRED, KIDNEY_TREATMENT_REQUIRED, SUD_TREATMENT_REQUIRED, OTHER_COMPLEX_TREATMENT_REQUIRED, DIABETES_EVER_TREATED, DIABETES_TREATED_LAST_3_MONTHS, DIABETES_TREATED_THIS_MONTH, MH_EVER_TREATED, MH_TREATED_LAST_3_MONTHS, MH_TREATED_THIS_MONTH, CARDIO_EVER_TREATED, CARDIO_TREATED_LAST_3_MONTHS, CARDIO_TREATED_THIS_MONTH, PULMONARY_EVER_TREATED, PULMONARY_TREATED_LAST_3_MONTHS, PULMONARY_TREATED_THIS_MONTH, KIDNEY_EVER_TREATED, KIDNEY_TREATED_LAST_3_MONTHS, KIDNEY_TREATED_THIS_MONTH, SUD_EVER_TREATED, SUD_TREATED_LAST_3_MONTHS, SUD_TREATED_THIS_MONTH, OTHER_COMPLEX_EVER_TREATED, OTHER_COMPLEX_TREATED_LAST_3_MONTHS, OTHER_COMPLEX_TREATED_THIS_MONTH
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_ABD_TREATMENT_SUMMARY
+),
+-- Join ABD condition first diagnosis
+abd_condition_first_diagnosis AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    FIRST_DIAGNOSIS_DIABETES, FIRST_DIAGNOSIS_MENTAL_HEALTH, FIRST_DIAGNOSIS_CARDIOVASCULAR, FIRST_DIAGNOSIS_PULMONARY, FIRST_DIAGNOSIS_KIDNEY, FIRST_DIAGNOSIS_SUD, FIRST_DIAGNOSIS_OTHER_COMPLEX
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_ABD_CONDITION_FIRST_DIAGNOSIS
+),
+
+-- Join coordinated care metrics
+care_coordination AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    DIABETES_COORDINATED_CARE_LAST_3_MONTHS, DIABETES_NEW_PROVIDER_THIS_MONTH, MH_COORDINATED_CARE_LAST_3_MONTHS, MH_NEW_PROVIDER_THIS_MONTH, CARDIO_COORDINATED_CARE_LAST_3_MONTHS, CARDIO_NEW_PROVIDER_THIS_MONTH, PULMONARY_COORDINATED_CARE_LAST_3_MONTHS, PULMONARY_NEW_PROVIDER_THIS_MONTH, KIDNEY_COORDINATED_CARE_LAST_3_MONTHS, KIDNEY_NEW_PROVIDER_THIS_MONTH, SUD_COORDINATED_CARE_LAST_3_MONTHS, SUD_NEW_PROVIDER_THIS_MONTH, OTHER_COMPLEX_COORDINATED_CARE_LAST_3_MONTHS, OTHER_COMPLEX_NEW_PROVIDER_THIS_MONTH
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_ABD_CARE_COORDINATION_SUMMARY
+),
+
+-- Join pharmacy metrics
+pharmacy_metrics AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    INSULIN_EVER_PRESCRIBED, ORAL_ANTIDIABETIC_EVER_PRESCRIBED, BETA_BLOCKER_EVER_PRESCRIBED, OPIATE_EVER_PRESCRIBED, ANTIPSYCH_EVER_PRESCRIBED, NUM_INSULIN_DRUGS_LAST_3_MONTHS, NUM_ORAL_ANTIDIABETIC_DRUGS_LAST_3_MONTHS, NUM_BETA_BLOCKER_DRUGS_LAST_3_MONTHS, NUM_OPIATE_DRUGS_LAST_3_MONTHS, NUM_ANTIPSYCH_DRUGS_LAST_3_MONTHS, INSULIN_MPR_LAST_3_MONTHS, ORAL_ANTIDIABETIC_MPR_LAST_3_MONTHS, BETA_BLOCKER_MPR_LAST_3_MONTHS, OPIATE_MPR_LAST_3_MONTHS, ANTIPSYCH_MPR_LAST_3_MONTHS, INSULIN_MED_ADHERENT, ORAL_ANTIDIABETIC_MED_ADHERENT, BETA_BLOCKER_MED_ADHERENT, OPIATE_MED_ADHERENT, ANTIPSYCH_MED_ADHERENT, INSULIN_MISSED_REFILL_THIS_MONTH, ORAL_ANTIDIABETIC_MISSED_REFILL_THIS_MONTH, BETA_BLOCKER_MISSED_REFILL_THIS_MONTH, OPIATE_MISSED_REFILL_THIS_MONTH, ANTIPSYCH_MISSED_REFILL_THIS_MONTH, INSULIN_NEW_DRUG_THIS_MONTH, ORAL_ANTIDIABETIC_NEW_DRUG_THIS_MONTH, BETA_BLOCKER_NEW_DRUG_THIS_MONTH, OPIATE_NEW_DRUG_THIS_MONTH, ANTIPSYCH_NEW_DRUG_THIS_MONTH
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_PHARMACY_METRICS_SUMMARY
+),
+
+-- Join lab and SNF metrics
+lab_snf_metrics AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    LAB_LAST_3_MONTHS, LAB_LAST_6_MONTHS, LAB_LAST_12_MONTHS, SNF_THIS_MONTH, SNF_LAST_3_MONTHS
+  FROM TRANSFORMED_DATA._TEMP.LAB_SNF_METRICS
+),
+
+-- Join real-time metrics
+real_time_metrics AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    HAD_ED_EVENT_THIS_MONTH, HAD_IP_EVENT_THIS_MONTH, HAD_ED_EVENT_LAST_3_MONTHS, HAD_IP_EVENT_LAST_3_MONTHS, HAD_DETERIORATING_CONDITION_THIS_MONTH, HAD_MEDICATION_CONCERN_THIS_MONTH, HAD_MEDICAL_NEEDS_THIS_MONTH, NEEDED_TRIAGE_ESCALATION_THIS_MONTH, TRIAGE_ESCALATION_RESOLVED_THIS_MONTH, TRIAGE_ESCALATION_UNRESOLVED_THIS_MONTH
+  FROM TRANSFORMED_DATA._TEMP.REAL_TIME_METRICS
+),
+
+-- Join prediction labels
+prediction_labels AS (
+  SELECT
+    FH_ID, EFFECTIVE_MONTH_START,
+    ED_EVENT_NEXT_30D, ED_EVENT_NEXT_60D, ED_EVENT_NEXT_90D, IP_EVENT_NEXT_30D, IP_EVENT_NEXT_60D,  
+    IP_EVENT_NEXT_90D,IS_ACTIVE_NEXT_90D
+  FROM TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_ED_IP_EVENT_LABELS
+)
+
+
+
+
+
+-- Final consolidated dataset
+SELECT
+  mm.FH_ID,
+  mm.EFFECTIVE_MONTH_START,
+  -- Enrollment status
+  md.IS_ENROLLED, md.IS_REINSTATED, md.IS_DISENROLLED,
+
+  -- Demographics
+  md.is_male, md.is_female, md.is_gender_unknown, md.age_bucket, md.is_age_15_19, md.is_age_20_24, md.is_age_25_29, md.is_age_30_34, md.is_age_35_39, md.is_age_40_44, md.is_age_45_49, md.is_age_50_54, md.is_age_55_59, md.is_age_60_64, md.is_age_65_69, md.is_age_70_74, md.is_age_75_79, md.is_age_80_84, md.is_age_85_89, md.is_age_90_94, md.is_age_95_99, md.is_age_100_plus,
+
+  -- Insurance products
+  ip.IS_ABD, ip.IS_TANF, ip.IS_EXPANSION, ip.IS_DSNP, ip.IS_OTHER,
+
+  -- Market features
+  mf.is_market_canton, mf.is_market_youngstown, mf.is_market_memphis, mf.is_market_dayton, mf.is_market_richmond, mf.is_market_cleveland, mf.is_market_chattanooga, mf.is_market_detROIT, mf.is_market_orlando, mf.is_market_toledo, mf.is_market_upper_east_tn, mf.is_market_akron, mf.is_market_columbus, mf.is_market_nashville, mf.is_market_jacksonville, mf.is_market_cincinnati, mf.is_market_fairfax, mf.is_market_support, mf.is_market_tacoma, mf.is_market_miami, mf.is_market_knoxville, mf.is_market_southwest_virginia, mf.is_market_other,
+
+  -- Engagement metrics
+  em.is_ever_selected, em.is_selected_month, em.is_ever_engaged, em.is_engaged_month, em.total_contact_attempts, em.successful_contact_attempts, em.unsuccessful_contact_attempts, em.success_rate_this_month, em.is_tried_contact_in_month, em.is_succefful_contact_in_month, em.is_intense_attempt_in_month, em.is_intense_support_in_month, em.became_non_responsive, em.became_responsive, em.increase_in_missed_calls, em.new_missed_calls, em.started_texting, em.stopped_texting, em.started_intense_texting, em.stopped_intense_texting, em.success_rate_increased, em.success_rate_decreased,
+
+  -- Diagnosis flags
+  df.HAS_DIABETES, df.HAS_MENTAL_HEALTH, df.HAS_CARDIOVASCULAR, df.HAS_PULMONARY, df.HAS_KIDNEY, df.HAS_SUD, df.HAS_OTHER_COMPLEX,
+
+  -- ABD condition first diagnosis
+  acfd.FIRST_DIAGNOSIS_DIABETES, acfd.FIRST_DIAGNOSIS_MENTAL_HEALTH, acfd.FIRST_DIAGNOSIS_CARDIOVASCULAR, acfd.FIRST_DIAGNOSIS_PULMONARY, acfd.FIRST_DIAGNOSIS_KIDNEY, acfd.FIRST_DIAGNOSIS_SUD, acfd.FIRST_DIAGNOSIS_OTHER_COMPLEX,
+
+  -- Treatment metrics
+  tm.DIABETES_TREATMENT_REQUIRED, tm.MH_TREATMENT_REQUIRED, tm.CARDIO_TREATMENT_REQUIRED, tm.PULMONARY_TREATMENT_REQUIRED, tm.KIDNEY_TREATMENT_REQUIRED, tm.SUD_TREATMENT_REQUIRED, tm.OTHER_COMPLEX_TREATMENT_REQUIRED, tm.DIABETES_EVER_TREATED, tm.DIABETES_TREATED_LAST_3_MONTHS, tm.DIABETES_TREATED_THIS_MONTH, tm.MH_EVER_TREATED, tm.MH_TREATED_LAST_3_MONTHS, tm.MH_TREATED_THIS_MONTH, tm.CARDIO_EVER_TREATED, tm.CARDIO_TREATED_LAST_3_MONTHS, tm.CARDIO_TREATED_THIS_MONTH, tm.PULMONARY_EVER_TREATED, tm.PULMONARY_TREATED_LAST_3_MONTHS, tm.PULMONARY_TREATED_THIS_MONTH, tm.KIDNEY_EVER_TREATED, tm.KIDNEY_TREATED_LAST_3_MONTHS, tm.KIDNEY_TREATED_THIS_MONTH, tm.SUD_EVER_TREATED, tm.SUD_TREATED_LAST_3_MONTHS, tm.SUD_TREATED_THIS_MONTH, tm.OTHER_COMPLEX_EVER_TREATED, tm.OTHER_COMPLEX_TREATED_LAST_3_MONTHS, tm.OTHER_COMPLEX_TREATED_THIS_MONTH,
+
+  -- Care coordination
+  cc.DIABETES_COORDINATED_CARE_LAST_3_MONTHS, cc.DIABETES_NEW_PROVIDER_THIS_MONTH, cc.MH_COORDINATED_CARE_LAST_3_MONTHS, cc.MH_NEW_PROVIDER_THIS_MONTH, cc.CARDIO_COORDINATED_CARE_LAST_3_MONTHS, cc.CARDIO_NEW_PROVIDER_THIS_MONTH, cc.PULMONARY_COORDINATED_CARE_LAST_3_MONTHS, cc.PULMONARY_NEW_PROVIDER_THIS_MONTH, cc.KIDNEY_COORDINATED_CARE_LAST_3_MONTHS, cc.KIDNEY_NEW_PROVIDER_THIS_MONTH, cc.SUD_COORDINATED_CARE_LAST_3_MONTHS, cc.SUD_NEW_PROVIDER_THIS_MONTH, cc.OTHER_COMPLEX_COORDINATED_CARE_LAST_3_MONTHS, cc.OTHER_COMPLEX_NEW_PROVIDER_THIS_MONTH,
+
+  -- Pharmacy metrics
+  pm.INSULIN_EVER_PRESCRIBED, pm.ORAL_ANTIDIABETIC_EVER_PRESCRIBED, pm.BETA_BLOCKER_EVER_PRESCRIBED, pm.OPIATE_EVER_PRESCRIBED, pm.ANTIPSYCH_EVER_PRESCRIBED, pm.NUM_INSULIN_DRUGS_LAST_3_MONTHS, pm.NUM_ORAL_ANTIDIABETIC_DRUGS_LAST_3_MONTHS, pm.NUM_BETA_BLOCKER_DRUGS_LAST_3_MONTHS, pm.NUM_OPIATE_DRUGS_LAST_3_MONTHS, pm.NUM_ANTIPSYCH_DRUGS_LAST_3_MONTHS, pm.INSULIN_MPR_LAST_3_MONTHS, pm.ORAL_ANTIDIABETIC_MPR_LAST_3_MONTHS, pm.BETA_BLOCKER_MPR_LAST_3_MONTHS, pm.OPIATE_MPR_LAST_3_MONTHS, pm.ANTIPSYCH_MPR_LAST_3_MONTHS, pm.INSULIN_MED_ADHERENT, pm.ORAL_ANTIDIABETIC_MED_ADHERENT, pm.BETA_BLOCKER_MED_ADHERENT, pm.OPIATE_MED_ADHERENT, pm.ANTIPSYCH_MED_ADHERENT, pm.INSULIN_MISSED_REFILL_THIS_MONTH, pm.ORAL_ANTIDIABETIC_MISSED_REFILL_THIS_MONTH, pm.BETA_BLOCKER_MISSED_REFILL_THIS_MONTH, pm.OPIATE_MISSED_REFILL_THIS_MONTH, pm.ANTIPSYCH_MISSED_REFILL_THIS_MONTH, pm.INSULIN_NEW_DRUG_THIS_MONTH, pm.ORAL_ANTIDIABETIC_NEW_DRUG_THIS_MONTH, pm.BETA_BLOCKER_NEW_DRUG_THIS_MONTH, pm.OPIATE_NEW_DRUG_THIS_MONTH, pm.ANTIPSYCH_NEW_DRUG_THIS_MONTH,
+
+  -- Lab and SNF metrics
+  ls.LAB_LAST_3_MONTHS, ls.LAB_LAST_6_MONTHS, ls.LAB_LAST_12_MONTHS, ls.SNF_THIS_MONTH, ls.SNF_LAST_3_MONTHS,
+
+  -- Real-time metrics
+  rt.HAD_ED_EVENT_THIS_MONTH, rt.HAD_IP_EVENT_THIS_MONTH, rt.HAD_ED_EVENT_LAST_3_MONTHS, rt.HAD_IP_EVENT_LAST_3_MONTHS, rt.HAD_DETERIORATING_CONDITION_THIS_MONTH, rt.HAD_MEDICATION_CONCERN_THIS_MONTH, rt.HAD_MEDICAL_NEEDS_THIS_MONTH, rt.NEEDED_TRIAGE_ESCALATION_THIS_MONTH, rt.TRIAGE_ESCALATION_RESOLVED_THIS_MONTH, rt.TRIAGE_ESCALATION_UNRESOLVED_THIS_MONTH,
+
+  -- Added notes-derived metrics columns
+  notes.self_present_this_month, notes.self_score_high_this_month, notes.med_adherence_present_this_month, notes.med_adherence_score_high_this_month, notes.health_present_this_month, notes.health_score_high_this_month, notes.care_engagement_present_this_month, notes.care_engagement_score_high_this_month, notes.program_trust_present_this_month, notes.program_trust_score_high_this_month, notes.risk_harm_present_this_month, notes.risk_harm_score_high_this_month, notes.social_stability_present_this_month, notes.social_stability_score_high_this_month,
+
+
+  -- ED/IP event metrics
+  edip.ED_EVENTS_IN_MONTH, edip.IP_EVENTS_IN_MONTH, edip.ED_EVENTS_LAST_3_MONTHS, edip.IP_EVENTS_LAST_3_MONTHS, edip.ED_EVENTS_LAST_3_6_MONTHS, edip.IP_EVENTS_LAST_3_6_MONTHS,
+
+  -- Prediction labels
+  pl.ED_EVENT_NEXT_30D, pl.ED_EVENT_NEXT_60D, pl.ED_EVENT_NEXT_90D, pl.IP_EVENT_NEXT_30D, pl.IP_EVENT_NEXT_60D, pl.IP_EVENT_NEXT_90D,pl.IS_ACTIVE_NEXT_90D
+
+
+
+FROM member_months mm
+LEFT JOIN member_demographics md ON mm.FH_ID = md.FH_ID AND mm.EFFECTIVE_MONTH_START = md.EFFECTIVE_MONTH_START
+LEFT JOIN engagement_metrics em ON mm.FH_ID = em.FH_ID AND mm.EFFECTIVE_MONTH_START = em.EFFECTIVE_MONTH_START
+LEFT JOIN diagnosis_flags df ON mm.FH_ID = df.FH_ID AND mm.EFFECTIVE_MONTH_START = df.EFFECTIVE_MONTH_START
+LEFT JOIN abd_treatment_metrics tm ON mm.FH_ID = tm.FH_ID AND mm.EFFECTIVE_MONTH_START = tm.EFFECTIVE_MONTH_START
+LEFT JOIN care_coordination cc ON mm.FH_ID = cc.FH_ID AND mm.EFFECTIVE_MONTH_START = cc.EFFECTIVE_MONTH_START
+LEFT JOIN pharmacy_metrics pm ON mm.FH_ID = pm.FH_ID AND mm.EFFECTIVE_MONTH_START = pm.EFFECTIVE_MONTH_START
+LEFT JOIN lab_snf_metrics ls ON mm.FH_ID = ls.FH_ID AND mm.EFFECTIVE_MONTH_START = ls.EFFECTIVE_MONTH_START
+LEFT JOIN real_time_metrics rt ON mm.FH_ID = rt.FH_ID AND mm.EFFECTIVE_MONTH_START = rt.EFFECTIVE_MONTH_START
+LEFT JOIN prediction_labels pl ON mm.FH_ID = pl.FH_ID AND mm.EFFECTIVE_MONTH_START = pl.EFFECTIVE_MONTH_START
+LEFT JOIN insurance_products ip ON mm.FH_ID = ip.FH_ID
+LEFT JOIN market_features mf ON mm.FH_ID = mf.FH_ID
+LEFT JOIN abd_condition_first_diagnosis acfd ON mm.FH_ID = acfd.FH_ID AND mm.EFFECTIVE_MONTH_START = acfd.EFFECTIVE_MONTH_START
+LEFT JOIN TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_ED_IP_EVENT_METRICS edip ON mm.FH_ID = edip.FH_ID AND mm.EFFECTIVE_MONTH_START = edip.EFFECTIVE_MONTH_START
+LEFT JOIN TRANSFORMED_DATA._TEMP.AL_REG_ATTRIBUTED_MEMBERS_NOTES_DERIVED notes ON mm.FH_ID = notes.FH_ID AND mm.EFFECTIVE_MONTH_START = notes.EFFECTIVE_MONTH_START;

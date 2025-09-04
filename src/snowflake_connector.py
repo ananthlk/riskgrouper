@@ -170,7 +170,7 @@ class SnowflakeConnector:
             print(f"Error executing query to DataFrame: {e}")
             return None
 
-    def query_to_dataframe_streamed(self, query):
+    def streaming(self, query):
         """
         Executes a SQL query and streams the results as pandas DataFrames.
 
@@ -186,15 +186,15 @@ class SnowflakeConnector:
         if not self.cursor:
             print("No active connection. Please connect first.")
             return
-        
+
         try:
             print("Executing query for streaming...")
             self.cursor.execute(query)
             print("Query executed. Fetching results in batches...")
-            
+
             for chunk in self.cursor.fetch_pandas_batches():
                 yield chunk
-            
+
             print("Finished fetching all batches.")
 
         except Exception as e:
@@ -240,9 +240,35 @@ class SnowflakeConnector:
         self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        Context manager exit point. Ensures the connection is closed.
-        This method is called automatically when exiting the `with` block.
-        """
+
         self.close()
+
+# --- Pipeline Integration Helper ---
+def fetch_snowflake_data(config, table_name=None, logger=None):
+    """
+    Fetches data from a specified Snowflake table using SSO login.
+    Args:
+        config: Pipeline config object (not used for connection, but for future query customization)
+        table_name: Name of the table to fetch
+        logger: Optional logger for info/error messages
+    Returns:
+        pd.DataFrame with table data, or raises Exception on failure
+    """
+    if not table_name:
+        raise ValueError("Table name must be provided to fetch data from Snowflake.")
+    query = f"SELECT * FROM {table_name} WHERE {config['TARGET']} IS NOT NULL"
+    try:
+        with SnowflakeConnector() as sf:
+            if sf.connection:
+                if logger:
+                    logger.info(f"Fetching data from Snowflake table: {table_name}")
+                df = sf.query_to_dataframe(query)
+                if df is None:
+                    raise RuntimeError(f"No data returned for table: {table_name}")
+                return df
+            else:
+                raise RuntimeError("Failed to connect to Snowflake.")
+    except Exception as e:
+        if logger:
+            logger.error(f"Error fetching data from Snowflake: {e}")
+        raise

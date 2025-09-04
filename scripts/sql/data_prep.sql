@@ -318,6 +318,15 @@ SELECT
     p.Y_IP_30D,
     p.Y_IP_60D,
     p.Y_IP_90D,
+
+    -- NEW Thematic labels
+    p.y_hiv_60d,
+    p.y_malnutrition_60d,
+    p.y_smi_60d,
+    p.y_chf_60d,
+    p.y_copd_60d,
+    p.y_sud_60d,
+    p.y_diabetes_60d,
     
     -- A new feature to isolate the impact of notes.
     CASE

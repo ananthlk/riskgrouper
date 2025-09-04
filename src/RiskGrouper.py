@@ -99,7 +99,7 @@ def setup_logger(analysis_name):
     return logger, log_filepath
 
 
-def prepare_and_run_models(df, analysis_name, target='y_any_90d', base_output='model_output.csv', logger=None, run_summary=None):
+def prepare_and_run_models(df, analysis_name, target='ip_event_next_30d', base_output='model_output.csv', logger=None, run_summary=None):
     """
     Prepares data, trains, evaluates, and saves models and their outputs.
 
@@ -145,7 +145,7 @@ def prepare_and_run_models(df, analysis_name, target='y_any_90d', base_output='m
         'gender', 'engagement_group', 'normalized_coverage_category',
         'y_ed_30d', 'y_ed_60d', 'y_ed_90d', 'y_ip_30d', 'y_ip_60d', 'y_ip_90d',
         'y_any_30d', 'y_any_60d', 'y_any_90d', 'has_care_notes_post_period'
-    ]
+    ] + [col for col in df.columns if '_next_' in col]
     
     features = [col for col in df.columns if col not in non_feature_cols]
     # Ensure only numeric types are used for modeling and fill any remaining NaNs with 0.
@@ -244,7 +244,8 @@ def prepare_and_run_models(df, analysis_name, target='y_any_90d', base_output='m
 
     # F) Identify and save the top N individuals with the highest predicted risk
     top_n = 20 if len(val_df_copy) > 20 else len(val_df_copy)
-    top_individuals = val_df_copy[['member_id', 'predicted_proba']].sort_values('predicted_proba', ascending=False)
+    val_df_copy['fh_id'] = val_df_copy['predicted_proba']
+    top_individuals = val_df_copy[['fh_id', 'predicted_proba']].sort_values('predicted_proba', ascending=False)
     top_out = os.path.splitext(base_output)[0] + f"_{target}_top.csv"
     top_individuals.head(top_n).to_csv(top_out, index=False)
     logger.info(f"Top {top_n} individuals for {target} saved to {top_out}")
@@ -318,16 +319,16 @@ def main():
     try:
         # --- Step 2: Define the Snowflake query and target variables ---
         query_map = {
-            '1': "SELECT * FROM TRANSFORMED_DATA._TEMP.MASTER_DATASET",
-            '2': "SELECT * FROM TRANSFORMED_DATA._TEMP.ENGAGED_GROUP_DATASET",
-            '3': "SELECT * FROM TRANSFORMED_DATA._TEMP.CLAIMS_ONLY_DATASET"
+            '1': "SELECT * FROM TRANSFORMED_DATA._TEMP.AL_REG_CONSOLIDATED_DATASET_MASTER",
+            '2': "SELECT * FROM TRANSFORMED_DATA._TEMP.AL_REG_CONSOLIDATED_DATASET_NOTES_ONLY",
+            '3': "SELECT * FROM TRANSFORMED_DATA._TEMP.AL_REG_CONSOLIDATED_DATASET_NOTES_ONLY",
+            'notes_only': "SELECT * FROM TRANSFORMED_DATA._TEMP.AL_REG_CONSOLIDATED_DATASET_NOTES_ONLY"
         }
         query = query_map.get(choice)
 
         target_vars = [
-            'y_ed_30d', 'y_ed_60d', 'y_ed_90d',
-            'y_ip_30d', 'y_ip_60d', 'y_ip_90d',
-            'y_any_30d', 'y_any_60d', 'y_any_90d'
+           'ed_event_next_30d', 'ed_event_next_60d', 'ed_event_next_90d',
+            'ip_event_next_30d', 'ip_event_next_60d', 'ip_event_next_90d'
         ]
 
         # Create a unique output directory for this run to keep artifacts organized.
@@ -347,11 +348,14 @@ def main():
 
             # Fetch data from Snowflake for the current target analysis.
             df = pd.DataFrame()
-            logger.info(f"Fetching data from Snowflake for: {analysis_name}...")
-            logger.info(f"Executing query: {query}")
+            logger.info(f"Fetching data from Snowflake for: {analysis_name} using streaming...")
+            data_chunks = []
             with SnowflakeConnector() as sf:
                 if sf.connection:
-                    df = sf.query_to_dataframe(query)
+                    for chunk in sf.streaming(query):
+                        data_chunks.append(chunk)
+
+            df = pd.concat(data_chunks, ignore_index=True) if data_chunks else pd.DataFrame()
             
             if df is None or df.empty:
                 logger.error(f"No data returned from Snowflake for target {target}. Skipping.")

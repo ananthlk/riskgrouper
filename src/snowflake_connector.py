@@ -73,10 +73,8 @@ SNOWFLAKE_CONFIG = {
 }
 
 # Define connection timeouts to prevent indefinite hanging.
-# Setting a higher CLIENT_SESSION_KEEP_ALIVE value to maintain the session.
 CONNECTION_TIMEOUT = 30  # Timeout for the network connection
 LOGIN_TIMEOUT = 120      # Timeout for the SSO login process
-CLIENT_SESSION_KEEP_ALIVE = True # Keep session alive
 
 class SnowflakeConnector:
     """
@@ -85,58 +83,49 @@ class SnowflakeConnector:
     This class encapsulates the logic for connecting to Snowflake, executing queries,
     and fetching data. It is designed to be used either directly or as a context manager.
     """
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(SnowflakeConnector, cls).__new__(cls)
-            cls._instance.connection = None
-            cls._instance.cursor = None
-        return cls._instance
-
     def __init__(self):
         """
-        Initializes the SnowflakeConnector, reusing any existing connection.
+        Initializes the SnowflakeConnector with no active connection.
         """
-        pass # Initialization is handled in __new__
+        self.connection = None
+        self.cursor = None
 
     def connect(self):
         """
         Establishes a connection to Snowflake using the parameters defined in the
         environment variables. It handles the SSO authentication flow.
-        If a connection already exists and is open, it does nothing.
 
         Returns:
-            bool: True if the connection was successful or already exists, False otherwise.
+            bool: True if the connection was successful, False otherwise.
         """
-        if self.connection and not self.connection.is_closed():
-            print("Reusing existing Snowflake connection.")
-            return True
-        
         try:
-            print("Connecting to Snowflake...")
+            print("Initiating SSO login to Snowflake...")
+            print("A browser window will open for authentication.")
+            
             # Filter out any configuration parameters that are not set (are None).
+            # This prevents errors when passing arguments to the connect function.
             conn_params = {k: v for k, v in SNOWFLAKE_CONFIG.items() if v is not None}
             
-            # Establish the connection
+            # Establish the connection using keyword arguments
             self.connection = snowflake.connector.connect(
                 **conn_params,
                 network_timeout=CONNECTION_TIMEOUT,
-                login_timeout=LOGIN_TIMEOUT,
-                client_session_keep_alive=CLIENT_SESSION_KEEP_ALIVE
+                login_timeout=LOGIN_TIMEOUT
             )
+            # Use a DictCursor to get query results as dictionaries (column_name: value)
             self.cursor = self.connection.cursor(DictCursor)
             print("Successfully connected to Snowflake!")
-            
-            # Verify connection
-            self.cursor.execute("SELECT CURRENT_USER() AS user")
-            result = self.cursor.fetchone()
-            print(f"Connected as user: {result['USER']}")
+
+            # Verify the connection by running a simple query
+            try:
+                self.cursor.execute("SELECT CURRENT_USER() AS user")
+                result = self.cursor.fetchone()
+                print(f"Connected as user: {result['USER']}")
+            except Exception as qe:
+                print(f"Query execution error during connection verification: {qe}")
             return True
         except Exception as e:
             print(f"Error connecting to Snowflake: {e}")
-            self.connection = None
-            self.cursor = None
             return False
 
     def execute_query(self, query):
@@ -150,7 +139,8 @@ class SnowflakeConnector:
             list[dict] or None: A list of dictionaries representing the query results,
                                 or None if an error occurs or there is no connection.
         """
-        if not self.connect(): # Ensure connection exists
+        if not self.cursor:
+            print("No active connection. Please connect first.")
             return None
         try:
             self.cursor.execute(query)
@@ -170,7 +160,8 @@ class SnowflakeConnector:
             pd.DataFrame or None: A DataFrame containing the query results,
                                   or None if an error occurs or there is no connection.
         """
-        if not self.connect(): # Ensure connection exists
+        if not self.connection:
+            print("No active connection. Please connect first.")
             return None
         try:
             # pd.read_sql is highly efficient for creating DataFrames from SQL queries
@@ -192,7 +183,8 @@ class SnowflakeConnector:
         Yields:
             pd.DataFrame: A chunk of the result set as a pandas DataFrame.
         """
-        if not self.connect(): # Ensure connection exists
+        if not self.cursor:
+            print("No active connection. Please connect first.")
             return
         
         try:
@@ -236,10 +228,8 @@ class SnowflakeConnector:
         """
         if self.cursor:
             self.cursor.close()
-            self.cursor = None
         if self.connection:
             self.connection.close()
-            self.connection = None
         print("Snowflake connection closed.")
 
     def __enter__(self):
@@ -255,6 +245,4 @@ class SnowflakeConnector:
         Context manager exit point. Ensures the connection is closed.
         This method is called automatically when exiting the `with` block.
         """
-        # The connection is no longer closed here to keep it alive.
-        # self.close()
-        print("Leaving context, but keeping Snowflake connection alive.")
+        self.close()

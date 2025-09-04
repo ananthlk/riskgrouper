@@ -193,7 +193,7 @@ def prepare_and_run_models(df, analysis_name, target='y_any_90d', base_output='m
     model = XGBClassifier(objective='binary:logistic', eval_metric='auc', use_label_encoder=False, scale_pos_weight=scale_pos_weight, random_state=42)
     
     # Use GridSearchCV to find the best model parameters based on ROC AUC.
-    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, scoring='roc_auc', cv=2, verbose=1, n_jobs=-1)
+    grid_search = GridSearchCV(estimator=model, param_grid=param_grid, scoring='roc_auc', cv=2, verbose=1, n_jobs=2)
     logger.info("Starting hyperparameter grid search...")
     grid_search.fit(X_train, y_train)
     logger.info("Hyperparameter grid search complete.")
@@ -351,20 +351,7 @@ def main():
             logger.info(f"Executing query: {query}")
             with SnowflakeConnector() as sf:
                 if sf.connection:
-                    logger.info("Starting data stream from Snowflake...")
-                    data_frames = []
-                    total_rows = 0
-                    for chunk_df in sf.query_to_dataframe_streamed(query):
-                        data_frames.append(chunk_df)
-                        total_rows += len(chunk_df)
-                        logger.info(f"Fetched {len(chunk_df)} rows... Total fetched: {total_rows}")
-                    
-                    if data_frames:
-                        logger.info(f"Concatenating {len(data_frames)} chunks into a single DataFrame...")
-                        df = pd.concat(data_frames, ignore_index=True)
-                        logger.info("Finished concatenating.")
-                    else:
-                        df = pd.DataFrame()
+                    df = sf.query_to_dataframe(query)
             
             if df is None or df.empty:
                 logger.error(f"No data returned from Snowflake for target {target}. Skipping.")
